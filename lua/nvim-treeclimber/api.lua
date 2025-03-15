@@ -11,6 +11,8 @@ local api = {}
 api.node = {}
 api.buf = {}
 
+local dbg = require'dp':get('treeclimber')
+
 local ns = a.nvim_create_namespace("nvim-treeclimber")
 local boundaries_ns = a.nvim_create_namespace("nvim-treeclimber-boundaries")
 
@@ -31,6 +33,10 @@ local function tbl_clear(t)
 	for i = 0, count do
 		t[i] = nil
 	end
+end
+
+local function show_history()
+	dbg:logf("%s", vim.inspect(plug_history))
 end
 
 --- @param node TSNode
@@ -222,14 +228,19 @@ end
 
 local function resume_visual_charwise()
 	local visualmode = f.visualmode()
-
 	if ({ ["v"] = true, [""] = true })[visualmode] then
+		-- Issue: which-key's ModeChanged logic interferes with the transition to
+		-- visual mode (when which-key's auto bindings are enabled in normal
+		-- mode).
+		-- Fix: An extra gv is harmless, but fixes the issue.
+		-- TODO: Figure out better workaround, but a *lot* of Neovimmers use
+		-- which-key, so the workaround is probably justified.
+		vim.cmd.normal("gv")
 		vim.cmd.normal("gv")
 	elseif ({ ["V"] = true, ["\22"] = true })[visualmode] then
 		-- 22 is the unicode decimal representation of <C-V>
 		vim.cmd.normal("gvv")
 	end
-
 	assert(vim.fn.mode() == "v", "Failed to resume visual mode")
 end
 
@@ -266,7 +277,7 @@ end
 
 ---Get the node that spans the range
 ---@param range treeclimber.Range
----@return TSNode?
+---@return TSNode?, TSNode?
 function api.buf.get_covering_node(range)
 	local root = api.buf.get_root()
 	return api.node.largest_named_descendant_for_range(root, range:to_list())
@@ -285,7 +296,8 @@ end
 ---@return TSNode?
 local function get_covering_node(start, end_)
 	local root = api.buf.get_root()
-	local range = Range.new(Pos.from_list(start), Pos.from_list(end_))
+	local range = Range.new(start, end_)
+	dbg:logf("get_covering_node: range: %s", range)
 	return api.node.largest_named_descendant_for_range(root, range:to_list())
 end
 
@@ -297,27 +309,38 @@ function api.node.named_descendant_for_range(node, range)
 	return node:named_descendant_for_range(range:values())
 end
 
----Get the largest node that spans the range
+---Get the smallest node that spans the range and the largest node co-located with it,
+---returning both in the following order: largest, smallest
+---TODO: Consider renaming this function whose name is rather misleading.
 ---@param node TSNode
 ---@param range Range4
----@return TSNode?
+---@return TSNode?, TSNode?
 function api.node.largest_named_descendant_for_range(node, range)
 	local prev = node:named_descendant_for_range(unpack(range))
+	dbg:logf("largest_named_descendant_for_range: node_s=%s node_e=%s prev_s=%s prev_e=%s prev=%s",
+		Pos:new(node:start()), Pos:new(node:end_()), Pos:new(prev:start()), Pos:new(prev:end_()), prev:sexpr())
 
 	if prev == nil then
 		return
 	end
 
+	dbg:logf("\tlargest_named_descendant_for_range: range=%s prev-range=%s",
+		Range.new4(unpack(range)), Range.new4(prev:range()))
+
 	---@type TSNode?
 	local next = prev
 
+	local innermost = prev
 	repeat
 		assert(next, "Expected TSNode")
 		prev = next
 		next = prev:parent()
 	until not next or not vim.deep_equal({ next:range() }, { prev:range() })
-
-	return prev
+	dbg:logf("\tlargest_named_descendant_for_range: Returning prev (s=%s e=%s sexp=%s) innermost (s=%s e=%s sexp=%s)",
+		Pos:new(prev:start()), Pos:new(prev:end_()), prev:sexpr(),
+		Pos:new(innermost:start()), Pos:new(innermost:end_()), innermost:sexpr())
+	-- Return up to two nodes.
+	return prev, innermost
 end
 
 -- Get a node above this one that would grow the selection
@@ -415,9 +438,16 @@ function api.select_current_node()
 		return
 	end
 
+	-- Note: I wouldn't push nodes when not ascending, but as long as they're being pushed by
+	-- select_forward and select_backward, this should be pushed as well.
+	push_history(node)
 	apply_decoration(node)
 	visually_select_node(node)
 	resume_visual_charwise()
+end
+
+function api.dbg_show_stack()
+	show_history()
 end
 
 function api.select_expand()
@@ -454,6 +484,10 @@ function api.select_shrink()
 		return
 	end
 
+	dbg:logf("");
+	show_history()
+	dbg:logf("\napi.select_shrink: node=(%s %s %s)",
+		Pos:new(node:start()), Pos:new(node:end_()), node:sexpr())
 	next_node = api.node.shrink(node, plug_history)
 
 	apply_decoration(next_node)
@@ -598,19 +632,38 @@ end
 --- @param end_ treeclimber.Pos
 --- @return TSNode[]
 local function get_covering_nodes(start, end_)
-	local parent = get_covering_node(start, end_)
+	local parent, innermost = get_covering_node(start, end_)
 
 	if parent == nil then
 		return {}
 	end
+	dbg:logf("get_covering_nodes: parent(start=%s end=%s sexp=%s)",
+		Pos:new(parent:start()), Pos:new(parent:end_()),
+		parent:sexpr())
+	if innermost then
+		dbg:logf("get_covering_nodes: innermost(start=%s end=%s sexp=%s)",
+			Pos:new(innermost:start()), Pos:new(innermost:end_()),
+			innermost:sexpr())
+	end
 
+	-- If outermost node is exact match, return it.
 	if Pos.eq(Pos:new(parent:end_()), end_) and Pos.eq(Pos:new(parent:start()), start) then
 		return { parent }
 	end
 
 	local nodes = {}
 
-	for child in parent:iter_children() do
+	-- Decide which parent to use: innermost or outermost. Both are larger than the input range.
+	-- If innermost parent has no children, prefer the parent (though the choice probably
+	-- doesn't matter in that case).
+	if innermost:child_count() == 0 then
+		dbg:logf("get_covering_nodes: returning outermost parent because innermost has no children.")
+		-- This handles the case of (eg) select_current_node from normal mode (such that input range is single char wide).
+		return parent
+	end
+	-- Loop over children of innermost parent, gathering the relevant subset.
+	for child in innermost:iter_children() do
+		dbg:logf("\tchild: %s", child:sexpr())
 		if child:named() and Pos.gte(Pos:new(child:start()), start) and Pos.lte(Pos:new(child:end_()), end_) then
 			table.insert(nodes, child)
 		end
@@ -621,12 +674,23 @@ end
 
 function api.select_grow_forward()
 	local start, end_ = get_selection_range()
+	dbg:logf("")
 	local nodes = get_covering_nodes(start, end_)
+	dbg:logf("#nodes=%d nodes: %s from start=%s end=%s",
+		#nodes,
+		vim.inspect(vim.tbl_map(function(n)
+			return n:sexpr()
+		end, nodes)),
+		Pos:new(start), Pos:new(end_))
 
 	if nodes and #nodes > 0 then
 		local snode = nodes[1]
 		local enode = nodes[#nodes]
-		enode = enode:next_sibling() or enode
+		-- Design Decision: Skip unnamed siblings such as equal signs.
+		enode = enode:next_named_sibling() or enode
+		dbg:logf("snode=%s enode=%s #snode#: %s #enode#: %s",
+			Pos:new(snode:start()), Pos:new(snode:end_()),
+			snode:sexpr(), enode:sexpr())
 		set_visual_start(snode)
 		set_visual_end(enode)
 		resume_visual_charwise()
@@ -635,7 +699,7 @@ end
 
 function api.select_grow_backward()
 	local start, end_ = get_selection_range()
-	local nodes = get_covering_nodes(start, end_)
+	local nodes = get_covering_nodes(start, end_, true)
 
 	if nodes and #nodes > 0 then
 		local snode = nodes[1]
@@ -686,26 +750,38 @@ function api.node.shrink(node, history)
 
 	if #history > 0 then
 		--- @type Range4
-		local descendant_range
+		local descendant_range, lower
 
+		-- Ignore the current node (or any co-located with it)
 		repeat
 			descendant_range = Stack.pop(history)
-		until #history == 0 or not vim.deep_equal(descendant_range, { node:range() })
-		-- Ignore the current node
+			lower = not vim.deep_equal(descendant_range, { node:range() })
+		until #history == 0 or lower
+		-- TODO: Docs say "undo previous expand"; consider doing this by allowing multi-node
+		-- ranges on the stack and using get_covering_nodes() here on the popped node...
+		-- For now, we need to ignore the popped node if it's not lower than current. This
+		-- shouldn't be necessary once history stack is reworked such that nodes are added only
+		-- when ascending.
+		if lower then
 
-		-- Only return a previously visited node if it's a descendant of the current node
-		assert(
-			type(descendant_range) == "table" and #descendant_range == 4,
-			string.format("Expected a Range4, got %s", type(descendant_range))
-		)
+			-- Only return a previously visited node if it's a descendant of the current node
+			assert(
+				type(descendant_range) == "table" and #descendant_range == 4,
+				string.format("Expected a Range4, got %s", type(descendant_range))
+			)
 
-		if descendant_range and vim.treesitter.node_contains(node, descendant_range) then
-			next = api.node.largest_named_descendant_for_range(node, descendant_range)
-			-- This should always be true
-			assert(next, "Expected a node")
-			-- Make sure to push this node back onto the stack
-			push_history(next)
-			return next
+			dbg:logf("\tdescendant_range=%s node=(s=%s e=%s sexp=%s)",
+				descendant_range, Pos:new(node:start()), Pos:new(node:end_()), node:sexpr())
+			if descendant_range and vim.treesitter.node_contains(node, descendant_range) then
+				next = api.node.largest_named_descendant_for_range(node, descendant_range)
+				-- This should always be true
+				assert(next, "Expected a node")
+				-- Make sure to push this node back onto the stack
+				push_history(next)
+				dbg:logf("\treturning next: (s=%s e=%s sexp=%s)",
+					Pos:new(next:start()), Pos:new(next:end_()), next:sexpr())
+				return next
+			end
 		end
 	end
 
@@ -714,6 +790,8 @@ function api.node.shrink(node, history)
 
 	local range = Range.from_node(node)
 
+	dbg:logf("api.node.shrink: node=(%s %s %s) range=%s",
+		Pos:new(node:start()), Pos:new(node:end_()), node:sexpr(), range)
 	while next and api.node.has_range(next, range) and next:named_child_count() > 0 do
 		prev = next
 		next = next:named_child(0)
