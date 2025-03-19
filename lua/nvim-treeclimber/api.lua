@@ -39,15 +39,24 @@ local function show_history()
 	dbg:logf("%s", vim.inspect(plug_history))
 end
 
---- @param node TSNode
-local function push_history(node)
-	local top = Stack.peek(plug_history)
-	local new_value = { node:range() }
+-- Push range onto the stack (or overwrite top entry if overwrite == true).
+--- @param range Range4
+--- @param overwrite boolean?
+local function push_history(range, overwrite)
+	local new_value = range
 
-	if vim.deep_equal(top, new_value) then
+	if overwrite then
+		plug_history[1] = new_value
 		return
+	else
+		-- Don't add redundant element.
+		local top = Stack.peek(plug_history)
+		if vim.deep_equal(top, new_value) then
+			return
+		end
 	end
 
+	-- TODO: Consider appending, which would probably be more efficient.
 	table.insert(plug_history, new_value)
 end
 
@@ -429,9 +438,6 @@ function api.select_current_node()
 		return
 	end
 
-	-- Note: I wouldn't push nodes when not ascending, but as long as they're being pushed by
-	-- select_forward and select_backward, this should be pushed as well.
-	push_history(node)
 	apply_decoration(node)
 	visually_select_node(node)
 	resume_visual_charwise()
@@ -449,8 +455,10 @@ function api.select_expand()
 		return
 	end
 
+	-- Does selection match covering node? If so, we need to expand; otherwise, the expansion
+	-- has already been performed by get_covering_node().
 	if node_is_selected(node, range:to_list()) then
-		-- First select the node, then grow it if it's the only node selected
+		-- Expand the selection.
 		node = api.node.grow(node)
 
 		if not node then
@@ -458,41 +466,56 @@ function api.select_expand()
 		end
 	end
 
-	push_history(node)
+	-- Push the range of *previously* selected nodes.
+	push_history(range:to_list())
 	apply_decoration(node)
 	visually_select_node(node)
 	resume_visual_charwise()
 end
 
 function api.select_shrink()
+	-- Design Decision: This function is designed for use with a single starting node, but
+	-- nothing precludes its use when multiple nodes are selected; thus, for now, treat
+	-- execution with multiple nodes selected as a shrink from the containing parent.
 	local range = api.buf.get_selection_range()
 	local root = api.buf.get_root()
 	local node = api.node.largest_named_descendant_for_range(root, range:to_list())
-	--- @type TSNode?
-	local next_node
 
 	if not node then
 		return
 	end
 
-	next_node = api.node.shrink(node, plug_history)
+	-- Get shrink target, which will be either a single child node, or a set of previously
+	-- selected children.
+	local nodes = api.node.shrink(node, plug_history)
 
-	apply_decoration(next_node)
-	visually_select_node(next_node)
+	if #nodes == 1 then
+		apply_decoration(nodes[1])
+		visually_select_node(nodes[1])
+	else
+		set_visual_start(nodes[1])
+		set_visual_end(nodes[#nodes])
+	end
 	resume_visual_charwise()
+
 end
 
 function api.select_top_level()
 	local start, end_ = get_selection_range()
 	local node = get_covering_node(start, end_)
 
+	-- Loop from current selection to top level, pushing a trail of ascended-from nodes as we go.
+	-- Note: If the starting selection differs from the covering node, push it first.
+	if node and not vim.deep_equal({node:range()}, {start.row, start.col, end_.row, end_.col})  then
+		push_history{start.row, start.col, end_.row, end_.col}
+	end
+	-- While current node has a parent (and current node isn't top level), push current and ascend.
 	while node and node:parent() do
-		if top_level_types[node:parent():type()] then
-			push_history(node)
-			node = node:parent()
+		-- Push node before ascending.
+		push_history{node:range()}
+		node = node:parent()
+		if not node or top_level_types[node:type()] then
 			break
-		else
-			node = node:parent()
 		end
 	end
 
@@ -546,7 +569,7 @@ function api.select_backward()
 		return
 	end
 
-	push_history(node)
+	push_history({node:range()}, true)
 	apply_decoration(node)
 	visually_select_node(node)
 	resume_visual_charwise()
@@ -606,7 +629,7 @@ function api.select_forward()
 		return
 	end
 
-	push_history(node)
+	push_history({node:range()}, true)
 	apply_decoration(node)
 	visually_select_node(node)
 	resume_visual_charwise()
@@ -637,7 +660,7 @@ local function get_covering_nodes(start, end_)
 	-- doesn't matter in that case).
 	if innermost:child_count() == 0 then
 		-- This handles the case of (eg) select_current_node from normal mode (such that input range is single char wide).
-		return parent
+		return { parent }
 	end
 	-- Loop over children of innermost parent, gathering the relevant subset.
 	for child in innermost:iter_children() do
@@ -703,65 +726,78 @@ function api.node.grow(node)
 	return ancestor or next
 end
 
+-- Return list of nodes representing the target of the shrink. Targets corresponding to a range
+-- previously pushed onto the node stack may span multiple nodes.
+-- Note: To simplify caller logic, we always return an array of nodes, even when a range from the
+-- stack is not used (in which case, the target is invariably a single node).
 ---@param node TSNode
 ---@param history treeclimber.History
----@return TSNode
+---@return TSNode[]
 function api.node.shrink(node, history)
 	argcheck("treeclimber.api.node.shrink", 1, "userdata", node)
 	argcheck("treeclimber.api.node.shrink", 2, "table", history)
 
-	---@type TSNode
-	local prev = node
-	---@type TSNode?
-	local next = node
-
 	if #history > 0 then
 		--- @type Range4
-		local descendant_range, lower
+		local descendant_range
+		--- @type boolean
+		local colocated, contained
 
-		-- Ignore the current node (or any co-located with it)
+		-- Check stack for a range that's within and not co-located with current node.
+		-- Short-circuit and clear stack if popped range is outside provided node.
+		-- Rationale:  To keep stack structure simple, we have it maintain history for only
+		-- one vertical path at a time.
 		repeat
 			descendant_range = Stack.pop(history)
-			lower = not vim.deep_equal(descendant_range, { node:range() })
-		until #history == 0 or lower
-		-- TODO: Docs say "undo previous expand"; consider doing this by allowing multi-node
-		-- ranges on the stack and using get_covering_nodes() here on the popped node...
-		-- For now, we need to ignore the popped node if it's not lower than current. This
-		-- shouldn't be necessary once history stack is reworked such that nodes are added only
-		-- when ascending.
-		if lower then
-
-			-- Only return a previously visited node if it's a descendant of the current node
+			contained = descendant_range and vim.treesitter.node_contains(node, descendant_range)
+			colocated = vim.deep_equal(descendant_range, { node:range() })
+		until #history == 0 or not contained or not colocated
+		dbg:logf("api.node.shrink: drange=%s", vim.inspect(descendant_range))
+		if contained and not colocated then
 			assert(
 				type(descendant_range) == "table" and #descendant_range == 4,
 				string.format("Expected a Range4, got %s", type(descendant_range))
 			)
 
-			if descendant_range and vim.treesitter.node_contains(node, descendant_range) then
-				next = api.node.largest_named_descendant_for_range(node, descendant_range)
-				-- This should always be true
-				assert(next, "Expected a node")
-				-- Make sure to push this node back onto the stack
-				push_history(next)
-				return next
+			-- Note: Docs specify that a shrink should "undo previous expand". We
+			-- accomplish this by pushing (potentially) multi-node *ranges* to the stack
+			-- on ascent and using get_covering_nodes() here on the popped range...
+			local nodes = get_covering_nodes(
+				Pos:new(descendant_range[1], descendant_range[2]),
+				Pos:new(descendant_range[3], descendant_range[4]))
+			if #nodes > 0 then
+				dbg:logf("\t#nodes=%d snode=(s=%s e=%s) enode=(s=%s e=%s)",
+					#nodes, Pos:new(nodes[1]:start()), Pos:new(nodes[1]:end_()),
+					Pos:new(nodes[#nodes]:start()), Pos:new(nodes[#nodes]:end_()))
+			else
+				dbg:logf("No nodes for descendant_range=%s", descendant_range)
 			end
+			-- This should always be true
+			assert(nodes and #nodes > 0, "Expected a node")
+			return nodes
 		end
 	end
 
-	-- Clear history, as the node is not a descendant of the current node
+	-- Clear history.
+	-- Rationale: We didn't use a range from the stack, which means either the stack is empty or
+	-- it contains a different vertical path from the one we're attempting to descend.
 	tbl_clear(history)
+
+	---@type TSNode?
+	local next = node
 
 	local range = Range.from_node(node)
 
+	-- Descend by first child, looking for first node that is not co-located with its parent *or*
+	-- has no named children.
+	-- Note: If we can't find non co-located node, just return lowest named node, even
+	-- if it's the starting node.
 	while next and api.node.has_range(next, range) and next:named_child_count() > 0 do
-		prev = next
 		next = next:named_child(0)
-		if not next then
-			break
-		end
 	end
 
-	return next or prev
+	-- Return array containing a single node.
+	return { next }
 end
 
 function api.draw_boundary()
