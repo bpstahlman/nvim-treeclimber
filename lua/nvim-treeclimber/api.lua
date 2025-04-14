@@ -1,11 +1,17 @@
 local ts = vim.treesitter
 local f = vim.fn
 local a = vim.api
+local Config = require('nvim-treeclimber.config')
 local Pos = require("nvim-treeclimber.pos")
 local Range = require("nvim-treeclimber.range")
 local Stack = require("nvim-treeclimber.stack")
 local RingBuffer = require("nvim-treeclimber.ring_buffer")
 local argcheck = require("nvim-treeclimber.typecheck").argcheck
+
+-- FIXME: Remove this once an approach has been finalized.
+local CFG_USE_MODE_CHANGED_EVENT = true
+
+local dbg = require'dp':get('treeclimber')
 
 local api = {}
 api.node = {}
@@ -27,10 +33,12 @@ end
 --- @type treeclimber.History
 local plug_history = {}
 
--- Return nil if we're not in any visual mode, else a string indicating which visual mode.
+-- Return nil if provided mode string (default mode()) does not represent any visual mode, else a
+-- string indicating which visual mode.
+---@param mode? string
 ---@return "v" | "V" | "\22" | nil
-local function in_any_visual_mode()
-	local mode = f.mode()
+local function in_any_visual_mode(mode)
+	mode = mode or f.mode()
 	return mode:match('^[vV]') or string.match(mode,
 		a.nvim_replace_termcodes("^<C-V>", true, false, true))
 end
@@ -503,6 +511,19 @@ local function is_selected_cursor_start(node, start, end_)
 	return sr == start.row and sc == start.col and er == end_.row and ec == end_.col
 end
 
+---@return {TreeClimberHighlight: vim.api.keyset.keymap,
+---         TreeClimberSiblingBoundary: vim.api.keyset.keymap,
+---         TreeClimberSibling: vim.api.keyset.keymap,
+---         TreeClimberParent: vim.api.keyset.keymap,
+---         TreeClimberParentStart: vim.api.keyset.keymap}
+local function get_active_highlights()
+	return vim.iter(vim.tbl_keys(Config:get_default("highlights")))
+		:map(function(k) return {k, a.nvim_get_hl(0, {name = k})} end)
+		:filter(function(kv) return not vim.tbl_isempty(kv[2]) end)
+		:fold({}, function(acc, kv) acc[kv[1]] = kv[2]; return acc end)
+
+end
+
 ---Apply highlights
 ---@param node TSNode
 local function apply_decoration(node)
@@ -510,50 +531,98 @@ local function apply_decoration(node)
 
 	a.nvim_buf_clear_namespace(0, ns, 0, -1)
 
-	local function cb()
-		-- FIXME: expand gets stuck when...
-		-- 1. starting on variable name (mode) below
-		-- 2. starting on equal
-		-- TODO: Try removing the debug statements tomorrow...
-		vim.defer_fn(function()
-			local mode = a.nvim_get_mode()
-			if mode.blocking == false and mode.mode ~= "v" then
-				a.nvim_buf_clear_namespace(0, ns, 0, -1)
-			else
-				cb()
-			end
-		end, 500)
+	if not CFG_USE_MODE_CHANGED_EVENT then
+		local function cb()
+			vim.defer_fn(function()
+				local mode = a.nvim_get_mode()
+				if mode.blocking == false and mode.mode ~= "v" then
+					a.nvim_buf_clear_namespace(0, ns, 0, -1)
+				else
+					cb()
+				end
+			end, 500)
+		end
+
+		cb()
+	else
+		-- Caveat: The pattern is important because a ModeChanged can cancel the visual selection.
+		a.nvim_create_autocmd({"ModeChanged"}, {
+			-- Design Decision: Could use explicit pattern since we know we should be in visual
+			-- mode, but the match in the callback is more conservative.
+			--pattern = "v:*",
+			-- Design Decision: Returning true from callback to delete autocmd after match succeeds is safer.
+			--once = true,
+			callback = function(t)
+				-- Get the second component of the event string (current mode).
+				if f.split(t.match, ":")[2] ~= "v" then
+					print(string.format("Deleting autocommand! %s", t))
+					a.nvim_buf_clear_namespace(0, ns, 0, -1)
+					-- Return true to delete autocommand.
+					return true
+				end
+			end,
+		})
 	end
 
-	cb()
+	-- Find out which regions are active so we can avoid setting marks for ones that aren't.
+	local regions = get_active_highlights()
+
+	-- Highlight the actual region.
+	if regions.TreeClimberHighlight then
+		local sl, sc = unpack({ node:start() })
+		local el, ec = unpack({ node:end_() })
+		a.nvim_buf_set_extmark(0, ns, sl, sc, {
+			hl_group = "TreeClimberHighlight",
+			strict = false,
+			end_line = el,
+			end_col = ec,
+		})
+	end
 
 	local parent = node:parent()
 
 	if parent then
 		local sl, sc = unpack({ parent:start() })
+		local el, ec = unpack({ parent:end_() })
 
-		a.nvim_buf_set_extmark(0, ns, sl, sc, {
-			hl_group = "TreeClimberParentStart",
-			strict = false,
-		})
+		if regions.TreeClimberParent then
+			a.nvim_buf_set_extmark(0, ns, sl, sc, {
+				hl_group = "TreeClimberParent",
+				strict = false,
+				end_line = el,
+				end_col = ec,
+			})
+		end
+		if regions.TreeClimberParentStart then
+			a.nvim_buf_set_extmark(0, ns, sl, sc, {
+				hl_group = "TreeClimberParentStart",
+				strict = false,
+			})
+		end
 
-		for child in parent:iter_children() do
-			if child:id() ~= node:id() and child:named() then
-				local el, ec = unpack({ child:end_() })
+		if regions.TreeClimberSiblingBoundary or regions.TreeClimberSibling then
+			for child in parent:iter_children() do
+				if child:id() ~= node:id() and child:named() then
+					local el, ec = unpack({ child:end_() })
 
-				a.nvim_buf_set_extmark(0, ns, sl, sc, {
-					hl_group = "TreeClimberSiblingBoundary",
-					strict = false,
-					-- end_line = sl,
-					end_col = sc + 1,
-				})
+					if regions.TreeClimberSiblingBoundary then
+						a.nvim_buf_set_extmark(0, ns, sl, sc, {
+							hl_group = "TreeClimberSiblingBoundary",
+							strict = false,
+							-- end_line = sl,
+							end_col = sc + 1,
+						})
+					end
 
-				a.nvim_buf_set_extmark(0, ns, sl, sc + 1, {
-					hl_group = "TreeClimberSibling",
-					strict = false,
-					end_line = el,
-					end_col = ec,
-				})
+					if regions.TreeClimberSibling then
+						a.nvim_buf_set_extmark(0, ns, sl, sc + 1, {
+							hl_group = "TreeClimberSibling",
+							strict = false,
+							end_line = el,
+							end_col = ec,
+						})
+					end
+				end
 			end
 		end
 	end
