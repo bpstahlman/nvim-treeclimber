@@ -77,33 +77,31 @@ git clone https://github.com/dkendal/nvim-treeclimber.git
 -- ~/.config/nvim/init.lua
 vim.cmd.packadd('nvim-treeclimber')
 
-require('nvim-treeclimber').setup({ --[[ your config here ]])
+require('nvim-treeclimber').setup({ --[[ your config here ]] })
 ```
 
-If you do not provide an option table to `setup()` (or you provide an empty table), default options and keybindings will be used.
+**Note:** If you omit the option table (or provide an empty one) in the call to `setup()`, treeclimber will use default options and keybindings.
 The following section documents the use of the option table to override defaults.
 
 ## Configuration
 
-**To use default highlight, keymaps, and commands call `require('nvim-treeclimber').setup()` without arguments.**
-
 To override specific elements of the default configuration, provide an option table containing only the keys you wish to change.
-The default option table is provided below, with comments documenting the meaning of the various keys.
-Any table you provide to `setup()` will be merged into this one (with preference given to your override), though treeclimber will generally fall back to the default with a warning if your override has an invalid format.
+The default option table is provided below, with comments documenting the meanings of the various keys.
+Any table you provide to `setup()` will be merged into this one, with preference given to your override.
+If your override has an invalid format, treeclimber will generally emit a warning and fall back to the default setting.
 
 ### Default Option Table
 
 ```lua
--- The default option table
 {
   -- ** Keymaps **
   -- Each entry of the 'keys' table configures the keymap for a single treeclimber function.
-  -- **Note:** The `keys` key itself can be set to a boolean to enable defaults or disable keymaps altogether.
+  -- Note: The `keys` key itself can be set to a boolean to enable defaults or disable keymaps altogether.
   ---@alias modestr "n"|"x"|"o"|"v"|""|"!"
   ---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
   ---@alias KeymapEntry
-  ---| boolean                        # true|nil to accept default <lhs> and mode(s)
-  ---                                 # false to disable the keymap
+  ---| boolean                        # true to accept default, false to disable
+  ---| nil                            # accept default (same as omitting the command name from table)
   ---| lhs                            # override the default <lhs>
   ---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
   ---| [(modestr|modestr[]), lhs][]   # idem, but allows multiple, mode-specific <lhs>'s
@@ -130,23 +128,27 @@ Any table you provide to `setup()` will be merged into this one (with preference
 
   -- ** Highlights **
   -- Each entry in this table defines the highlighting treeclimber applies to one of several regions
-  -- relative to the current selection and its siblings/parent. To override the default, provide
-  -- either a `vim.api.keyset.highlight` or a callback function that returns one. The callback will
-  -- be invoked upon colorscheme load with an `HSLUVHighlights` object that may be used to "mix" new
-  -- colors from the currently active normal and visual mode fg/bg colors.
-  -- **Note:** The `vim.api.keyset.highlight` contains properties for more than just fg/bg colors:
-  -- e.g., you could make the currently selected region bold and its siblings italic with the
-  -- following override:
-  --   ...
-  --   TreeClimberHighlight = {bold = true},
-  --   TreeClimberSibling = {italic = true)
-  --   ...
-  -- **Note:** You can also disable unwanted regions by setting the corresponding key(s) `false`.
-  -- E.g., to disable all but the primary selection region (TreeClimberHighlight)...
-  --   {
-  --   TreeClimberSiblingBoundary = false, TreeClimberSibling = false,
-  --   TreeClimberParent = false, TreeClimberParentStart = false
+  -- relative to the current selection and its siblings/parent. To override the highlighting for a
+  -- specific region, set the corresponding key to either a `vim.api.keyset.highlight` or a callback
+  -- function that returns one. The callback will be invoked upon colorscheme load with an `HSLUVHighlights`
+  -- object that may be used to "mix" new colors from the currently active normal and visual mode fg/bg colors.
+  -- **Important Note: The `HSLUV` class provides many color-manipulation methods in addition to the `mix()`
+  -- method used in the defaults. The class's type annotation is provided in the next section. If you require
+  -- more detail, look in "vivid/hsl_like.lua" in the treeclimber source.
+  -- 
+  -- **Note: The `vim.api.keyset.highlight` can be used to specify more than just fg/bg colors: e.g., the
+  -- following override would make the currently selected region bold and its siblings italic:
+  --   highlights = {
+  --     TreeClimberHighlight = {bold = true},
+  --     TreeClimberSibling = {italic = true)
   --   }
+  -- **Note: You can also disable unwanted regions by setting the corresponding key(s) `false`.
+  -- E.g., to disable all but the primary selection region (TreeClimberHighlight)...
+  --   highlights = {
+  --     TreeClimberSiblingBoundary = false, TreeClimberSibling = false,
+  --     TreeClimberParent = false, TreeClimberParentStart = false
+  --   }
+  ---@alias HSLUVHighlight {bg: HSLUV?, fg: HSLUV?, ctermbg: HSLUV?, ctermfg: HSLUV?}
   ---@alias HSLUVHighlights
   ---| {normal: HSLUVHighlight, visual: HSLUVHighlight}
   ---@alias HighlightCallback
@@ -168,6 +170,42 @@ Any table you provide to `setup()` will be merged into this one (with preference
         -- TODO...
   },
 }
+```
+
+### HSLUV Color Support
+As mentioned in the default option comments, an object of type `HSLUV` is made available to `highlights` option callback functions.
+This object facilitates working with *HSL* colors in the more human-friendly *HSLUV* color space.
+Its methods and fields are shown here. For further detail, look in the treeclimber source (vivid/hsl_like.lua).
+
+```lua
+---@class HSLUV
+---@field hex string
+---@field h number
+---@field s number
+---@field l number
+---@field rotate fun(n: number): HSLUV
+---@field ro fun(n: number): HSLUV
+---@field saturate fun(n: number): HSLUV
+---@field sa fun(n: number): HSLUV
+---@field abs_saturate fun(n: number): HSLUV
+---@field abs_sa fun(n: number): HSLUV
+---@field desaturate fun(n: number): HSLUV
+---@field de fun(n: number): HSLUV
+---@field abs_desaturate fun(n: number): HSLUV
+---@field abs_de fun(n: number): HSLUV
+---@field lighten fun(n: number): HSLUV
+---@field li fun(n: number): HSLUV
+---@field abs_lighten fun(n: number): HSLUV
+---@field abs_li fun(n: number): HSLUV
+---@field darken fun(n: number): HSLUV
+---@field da fun(n: number): HSLUV
+---@field abs_darken fun(n: number): HSLUV
+---@field abs_da fun(n: number): HSLUV
+---@field mix fun(color: HSLUV, n: number): HSLUV
+---@field readable fun(): HSLUV
+---@field hue fun(n: number): HSLUV
+---@field saturation fun(n: number): HSLUV
+---@field lightness fun(n: number): HSLUV
 ```
 
 ---
