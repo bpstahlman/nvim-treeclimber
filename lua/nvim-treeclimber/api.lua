@@ -237,6 +237,7 @@ end
 ---@param range treeclimber.Range # TSNode with [0,0) indexing
 ---@param reverse boolean? # leave cursor at end of range
 local function visually_select_range(range, reverse)
+	dbg:logf("visually_select_range()")
 	-- Convert range from TSNode [0,0) to Vim [1,0] indexing and ensure range is entirely within current
 	-- buffer. (See note on buf_limited().)
 	range = range:buf_limited():to_vim()
@@ -529,6 +530,7 @@ end
 local function apply_decoration(node)
 	argcheck("treeclimber.api.apply_decoration", 1, "userdata", node)
 
+	dbg:logf("Applying decoration")
 	a.nvim_buf_clear_namespace(0, ns, 0, -1)
 
 	if not CFG_USE_MODE_CHANGED_EVENT then
@@ -545,18 +547,25 @@ local function apply_decoration(node)
 
 		cb()
 	else
+		-- Note: The only drawback to this approach is that, because of the
+		-- ensure_normal_mode() call in visually_select_range(), it will cancel old and
+		-- create new autocommand on each movement.
 		-- Caveat: The pattern is important because a ModeChanged can cancel the visual selection.
+		dbg:logf("Creating ModeChanged callback: %s", f.mode())
 		a.nvim_create_autocmd({"ModeChanged"}, {
 			-- Design Decision: Could use explicit pattern since we know we should be in visual
 			-- mode, but the match in the callback is more conservative.
 			--pattern = "v:*",
-			-- Design Decision: Returning true from callback to delete autocmd after match succeeds is safer.
+			-- Design Decision: Returning true from callback to delete autocmd after
+			-- match succeeds is safer.
 			--once = true,
 			callback = function(t)
+				dbg:logf("Inside callback: %s", vim.inspect(t))
 				-- Get the second component of the event string (current mode).
 				if f.split(t.match, ":")[2] ~= "v" then
 					print(string.format("Deleting autocommand! %s", t))
 					a.nvim_buf_clear_namespace(0, ns, 0, -1)
+					dbg:logf("Canceled event")
 					-- Return true to delete autocommand.
 					return true
 				end
@@ -638,8 +647,8 @@ function api.select_current_node()
 
 	-- Design Decision: select_current_node clears node stack.
 	clear_history()
-	apply_decoration(node)
 	visually_select_node(node)
+	apply_decoration(node)
 end
 
 -- FIXME: Looks like maybe we're getting a nil when we try to climb too high!
@@ -670,8 +679,8 @@ function api.select_expand()
 			push_history(range:to_list())
 		end
 	end
-	apply_decoration(node)
 	visually_select_node(node)
+	apply_decoration(node)
 end
 
 function api.select_shrink()
@@ -696,11 +705,11 @@ function api.select_shrink()
 
 	-- Treat the single and multi-node cases differently.
 	if #nodes == 1 then
-		apply_decoration(nodes[1])
 		visually_select_node(nodes[1])
 	elseif #nodes > 1 then
 		visually_select_nodes(nodes)
 	end
+	apply_decoration(nodes[1])
 
 end
 
@@ -728,8 +737,8 @@ function api.select_top_level()
 		return
 	end
 
-	apply_decoration(node)
 	visually_select_node(node)
+	apply_decoration(node)
 end
 
 -- TODO: Use TSNode:extra() to skip comments (here and everywhere), but consider how best
@@ -749,8 +758,8 @@ function api.select_forward_end()
 	end
 
 	clear_history()
-	apply_decoration(node)
 	visually_select_node(node, true)
+	apply_decoration(node)
 end
 
 function api.select_backward()
@@ -771,8 +780,8 @@ function api.select_backward()
 	end
 
 	clear_history()
-	apply_decoration(node)
 	visually_select_node(node)
+	apply_decoration(node)
 end
 
 function api.select_siblings_backward()
@@ -788,8 +797,8 @@ function api.select_siblings_backward()
 	end
 
 	clear_history()
-	apply_decoration(node)
 	visually_select_node(node)
+	apply_decoration(node)
 end
 
 -- TODO: Consider whether it would be better to select first or last sibling *at same level* as
@@ -808,8 +817,8 @@ function api.select_siblings_forward()
 	end
 
 	clear_history()
-	apply_decoration(node)
 	visually_select_node(node)
+	apply_decoration(node)
 end
 
 function api.select_forward()
@@ -829,8 +838,8 @@ function api.select_forward()
 	end
 
 	clear_history()
-	apply_decoration(node)
 	visually_select_node(node)
+	apply_decoration(node)
 end
 
 function api.select_grow_forward()

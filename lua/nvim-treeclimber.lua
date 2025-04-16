@@ -154,7 +154,7 @@ end
 local function parse_highlight_entry(uhl, dhl, normal, visual)
 	if type(dhl) == "function" then
 		---@cast dhl vim.api.keyset.highlight
-		dhl = dhl(normal, visual)
+		dhl = dhl({normal = normal, visual = visual})
 	end
 	if uhl == true or uhl == nil then
 		return dhl -- use default
@@ -164,7 +164,7 @@ local function parse_highlight_entry(uhl, dhl, normal, visual)
 	end
 	-- User provided some sort of override requiring validation (possibly after expansion).
 	if type(uhl) == "function" then
-		uhl = uhl(normal, visual)
+		uhl = uhl({normal = normal, visual = visual})
 	end
 	-- Validate the user highlight entry by using in protected call to nvim_set_hl().
 	local validation_ns = vim.api.nvim_create_namespace("treeclimber.validation")

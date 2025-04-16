@@ -9,6 +9,9 @@ Requires neovim >= 0.10.
 
 ### Navigation
 
+The following table lists the treeclimber navigation commands, along with their default keybindings.
+See [Configuration](#configuration) for details on changing the defaults.
+
 | Key binding   | Action                                                                                                                                                                            | Demo                                                                                                                          |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `alt-h`       | Select the previous sibling node.                                                                                                                                                 | ![select-prev](https://user-images.githubusercontent.com/3162299/203088192-5c3a7f49-aa8f-4927-b9f2-1dc9c5245364.gif)          |
@@ -46,7 +49,21 @@ https://user-images.githubusercontent.com/3162299/203097777-a9a84c2d-8dec-4db8-a
 
 ## Installation
 
-Use your preferred package manager, or the built-in package system (`:help packages`).
+User your preferred package manager, or the built-in package system (`:help packages`).
+
+### [lazy.nvim](https://github.com/folke/lazy.nvim)
+
+```lua
+{
+  "dkendal/nvim-treeclimber",
+  opts = {
+    -- Provide your desired configuration here, or leave empty to use defaults.
+    -- See Configuration section for details...
+  },
+}
+```
+
+### Bash command-line installation
 
 ```sh
 mkdir -p ~/.config/nvim/pack/dkendal/opt
@@ -54,36 +71,103 @@ cd ~/.config/nvim/pack/dkendal/opt
 git clone https://github.com/dkendal/nvim-treeclimber.git
 ```
 
+### Neovim package system
+
 ```lua
 -- ~/.config/nvim/init.lua
 vim.cmd.packadd('nvim-treeclimber')
 
-require('nvim-treeclimber').setup()
+require('nvim-treeclimber').setup({ --[[ your config here ]])
 ```
 
-If you want to change the default keybindings, call `require('nvim-treeclimber')` rather than calling setup.
-See [configuration](#configuration).
+If you do not provide an option table to `setup()` (or you provide an empty table), default options and keybindings will be used.
+The following section documents the use of the option table to override defaults.
 
 ## Configuration
 
-**To use default highlight, keymaps, and commands call `require('nvim-treeclimber').setup()`.**
+**To use default highlight, keymaps, and commands call `require('nvim-treeclimber').setup()` without arguments.**
 
-To manually specify the configuration options, take a look at the contents of `lua/nvim-treeclimber.lua` and import or modify the portions that you need.
+To override specific elements of the default configuration, provide an option table containing only the keys you wish to change.
+The default option table is provided below, with comments documenting the meaning of the various keys.
+Any table you provide to `setup()` will be merged into this one (with preference given to your override), though treeclimber will generally fall back to the default with a warning if your override has an invalid format.
 
-For example, if you just want the built in user commands and highlights but you want your own keybindings, you can do the following:
+### Default Option Table
 
 ```lua
+-- The default option table
+{
+  -- ** Keymaps **
+  -- Each entry of the 'keys' table configures the keymap for a single treeclimber function.
+  -- **Note:** The `keys` key itself can be set to a boolean to enable defaults or disable keymaps altogether.
+  ---@alias modestr "n"|"x"|"o"|"v"|""|"!"
+  ---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
+  ---@alias KeymapEntry
+  ---| boolean                        # true|nil to accept default <lhs> and mode(s)
+  ---                                 # false to disable the keymap
+  ---| lhs                            # override the default <lhs>
+  ---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
+  ---| [(modestr|modestr[]), lhs][]   # idem, but allows multiple, mode-specific <lhs>'s
+  ---@type {[string]: KeymapEntry}
+  keys = {
+    show_control_flow = { "n", "<leader>k"},
+    select_current_node = {
+      {"n", "<A-k>"},
+      {{ "x", "o" }, "i."}},
+    select_siblings_backward = {{ "n", "x", "o" }, "<M-[>"},
+    select_siblings_forward = {{ "n", "x", "o" }, "<M-]>"},
+    select_top_level = {{ "n", "x", "o" }, "<M-g>"},
+    select_forward = {{ "n", "x", "o" }, "<M-l>"},
+    select_backward = {{ "n", "x", "o" }, "<M-h>"},
+    select_forward_end = {{ "n", "x", "o" }, "<M-e>"},
+    select_grow_forward = {{ "n", "x", "o" }, "<M-L>"},
+    select_grow_backward = {{ "n", "x", "o" }, "<M-H>"},
+    select_expand = {
+      {{"x", "o"}, "a."},
+      {{"n", "x", "o"}, "<M-k>"}
+    },
+    select_shrink = {{ "n", "x", "o" }, "<M-j>"},
+  },
 
-local tc = require('nvim-treeclimber')
-
-tc.setup_augroups()
-tc.setup_user_commands()
-
--- Copied from setup_keymaps
-vim.keymap.set("n", "<leader>k", tc.show_control_flow, {})
-vim.keymap.set({ "x", "o" }, "i.", tc.select_current_node, { desc = "select current node" })
-vim.keymap.set({ "x", "o" }, "a.", tc.select_expand, { desc = "select parent node" })
-...
+  -- ** Highlights **
+  -- Each entry in this table defines the highlighting treeclimber applies to one of several regions
+  -- relative to the current selection and its siblings/parent. To override the default, provide
+  -- either a `vim.api.keyset.highlight` or a callback function that returns one. The callback will
+  -- be invoked upon colorscheme load with an `HSLUVHighlights` object that may be used to "mix" new
+  -- colors from the currently active normal and visual mode fg/bg colors.
+  -- **Note:** The `vim.api.keyset.highlight` contains properties for more than just fg/bg colors:
+  -- e.g., you could make the currently selected region bold and its siblings italic with the
+  -- following override:
+  --   ...
+  --   TreeClimberHighlight = {bold = true},
+  --   TreeClimberSibling = {italic = true)
+  --   ...
+  -- **Note:** You can also disable unwanted regions by setting the corresponding key(s) `false`.
+  -- E.g., to disable all but the primary selection region (TreeClimberHighlight)...
+  --   {
+  --   TreeClimberSiblingBoundary = false, TreeClimberSibling = false,
+  --   TreeClimberParent = false, TreeClimberParentStart = false
+  --   }
+  ---@alias HSLUVHighlights
+  ---| {normal: HSLUVHighlight, visual: HSLUVHighlight}
+  ---@alias HighlightCallback
+  ---| fun(o: HSLUVHighlights) : vim.api.keyset.highlight
+  ---@alias HighlightEntry
+  ---| vim.api.keyset.highlight   # to be provided to `nvim_set_hl()`
+  ---| HighlightCallback          # must return a `vim.api.keyset.highlight`
+  ---| boolean                    # true for default highlighting, false to disable the group
+  ---| nil                        # default highlighting
+  ---@type {[string]: HighlightEntry}
+  highlights = {
+    TreeClimberHighlight = function(o) return { bg = o.visual.bg.hex } end,
+    TreeClimberSiblingBoundary = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+    TreeClimberSibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+    TreeClimberParent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+    TreeClimberParentStart = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+  },
+  features = {
+        -- TODO...
+  },
+}
 ```
 
 ---

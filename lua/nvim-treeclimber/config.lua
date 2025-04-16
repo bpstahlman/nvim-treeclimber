@@ -21,14 +21,17 @@ local Opt = require"nvim-treeclimber.opt"
 ---| treeclimber.KeymapEntryTable[]
 
 -- ** Highlights **
+---@alias treeclimber.HighlightCallback
+---| fun(o: {normal: HSLUVHighlight, visual: HSLUVHighlight}) : vim.api.keyset.highlight
+
 ---@alias treeclimber.HighlightEntry
----| fun(normal: HSLUVHighlight, visual: HSLUVHighlight) : vim.api.keyset.highlight
+---| treeclimber.HighlightCallback
 ---| vim.api.keyset.highlight
 ---| boolean
 ---| nil
 
 ---@alias treeclimber.HighlightEntryCanon
----| fun(normal: HSLUVHighlight, visual: HSLUVHighlight) : vim.api.keyset.highlight
+---| fun(o: {normal: HSLUVHighlight, visual: HSLUVHighlight}) : vim.api.keyset.highlight
 ---| vim.api.keyset.highlight
 
 -- TODO: Move this to config.lua, having it passed to constructor.
@@ -55,11 +58,11 @@ local defaults = {
 		select_shrink = {{ "n", "x", "o" }, "<M-j>"},
 	},
 	highlights = {
-		TreeClimberHighlight = function(_, visual) return { bg = visual.bg.hex } end,
-		TreeClimberSiblingBoundary = function(normal, visual) return { bg = visual.bg.mix(normal.bg, 50).hex } end,
-		TreeClimberSibling = function(normal, visual) return { bg = visual.bg.mix(normal.bg, 50).hex } end,
-		TreeClimberParent = function(normal, visual) return { bg = visual.bg.mix(normal.bg, 50).hex } end,
-		TreeClimberParentStart = function(normal, visual) return { bg = visual.bg.mix(normal.bg, 50).hex } end,
+		TreeClimberHighlight = function(o) return { bg = o.visual.bg.hex } end,
+		TreeClimberSiblingBoundary = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+		TreeClimberSibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+		TreeClimberParent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+		TreeClimberParentStart = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
 	},
 	traversal = {
 	},
