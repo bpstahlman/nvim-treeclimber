@@ -604,7 +604,7 @@ local function apply_decoration(node)
 		end
 		if regions.TreeClimberParentStart then
 			a.nvim_buf_set_extmark(0, ns, sl, sc, {
-				hl_group = "TreeClimberParentStart",
+				hl_group = "TreeClimberParentStart"  ,
 				strict = false,
 			})
 		end
@@ -612,23 +612,27 @@ local function apply_decoration(node)
 		if regions.TreeClimberSiblingBoundary or regions.TreeClimberSibling then
 			for child in parent:iter_children() do
 				if child:id() ~= node:id() and child:named() then
-					local el, ec = unpack({ child:end_() })
-
+					local csl, csc = unpack({ child:start() })
+					local cel, cec = unpack({ child:end_() })
+					dbg:logf("child: %d %d %d %d", child:range())
 					if regions.TreeClimberSiblingBoundary then
-						a.nvim_buf_set_extmark(0, ns, sl, sc, {
+						a.nvim_buf_set_extmark(0, ns, csl, csc, {
 							hl_group = "TreeClimberSiblingBoundary",
 							strict = false,
 							-- end_line = sl,
-							end_col = sc + 1,
+							end_col = csc + 1,
 						})
 					end
 
 					if regions.TreeClimberSibling then
-						a.nvim_buf_set_extmark(0, ns, sl, sc + 1, {
+						-- Caveat: Skip the first char of sibling iff
+						-- sibling boundary group disabled.
+						a.nvim_buf_set_extmark(0, ns, csl,
+							regions.TreeClimberSiblingBoundary and csc + 1 or csc, {
 							hl_group = "TreeClimberSibling",
 							strict = false,
-							end_line = el,
-							end_col = ec,
+							end_line = cel,
+							end_col = cec,
 						})
 					end
 				end
