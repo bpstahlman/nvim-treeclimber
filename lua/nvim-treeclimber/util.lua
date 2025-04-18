@@ -5,7 +5,7 @@ local Util = {}
 ---@param str string the formatting string
 ---@param ... any
 function Util.notify(how, str, ...)
-	str = string.format(str, ...)
+	str = string.format("Treeclimber: " .. str, ...)
 	if how == "exception" then
 		error(str)
 	else

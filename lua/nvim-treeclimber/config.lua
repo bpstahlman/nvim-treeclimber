@@ -58,11 +58,11 @@ local defaults = {
 		select_shrink = {{ "n", "x", "o" }, "<M-j>"},
 	},
 	highlights = {
-		TreeClimberHighlight = function(o) return { bg = o.visual.bg.hex } end,
-		TreeClimberSiblingBoundary = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+		TreeClimberHighlight = function(o) return { bold = true, bg = o.visual.bg.hex } end,
+		TreeClimberSiblingStart = false,
 		TreeClimberSibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
-		TreeClimberParent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
-		TreeClimberParentStart = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+		TreeClimberParent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 80).hex } end,
+		TreeClimberParentStart = false,
 	},
 	traversal = {
 	},
@@ -73,7 +73,7 @@ local defaults = {
 -- Define some helpers.
 function Config.is_mode(x)
 	-- TODO: Decide how many of these should be supported?
-	return type(x) == "string" and x:match("^[nvxsoi!]?$")
+	return type(x) == "string" and x:match("^[nvxsi!]?$")
 end
 function Config.is_mode_array(x)
 	return vim.islist(x) and vim.iter(x):all(function(x_) return Config.is_mode(x_) end)

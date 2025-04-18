@@ -11,8 +11,6 @@ local argcheck = require("nvim-treeclimber.typecheck").argcheck
 -- FIXME: Remove this once an approach has been finalized.
 local CFG_USE_MODE_CHANGED_EVENT = true
 
-local dbg = require'dp':get('treeclimber')
-
 local api = {}
 api.node = {}
 api.buf = {}
@@ -237,7 +235,6 @@ end
 ---@param range treeclimber.Range # TSNode with [0,0) indexing
 ---@param reverse boolean? # leave cursor at end of range
 local function visually_select_range(range, reverse)
-	dbg:logf("visually_select_range()")
 	-- Convert range from TSNode [0,0) to Vim [1,0] indexing and ensure range is entirely within current
 	-- buffer. (See note on buf_limited().)
 	range = range:buf_limited():to_vim()
@@ -513,7 +510,7 @@ local function is_selected_cursor_start(node, start, end_)
 end
 
 ---@return {TreeClimberHighlight: vim.api.keyset.keymap,
----         TreeClimberSiblingBoundary: vim.api.keyset.keymap,
+---         TreeClimberSiblingStart: vim.api.keyset.keymap,
 ---         TreeClimberSibling: vim.api.keyset.keymap,
 ---         TreeClimberParent: vim.api.keyset.keymap,
 ---         TreeClimberParentStart: vim.api.keyset.keymap}
@@ -525,12 +522,10 @@ local function get_active_highlights()
 
 end
 
----Apply highlights
----@param node TSNode
-local function apply_decoration(node)
-	argcheck("treeclimber.api.apply_decoration", 1, "userdata", node)
 
-	dbg:logf("Applying decoration")
+-- Clear any leftover extmarks from our namespace and register callback to clear the ones we're
+-- about to create when they're no longer needed.
+local function clear_namespace()
 	a.nvim_buf_clear_namespace(0, ns, 0, -1)
 
 	if not CFG_USE_MODE_CHANGED_EVENT then
@@ -549,9 +544,7 @@ local function apply_decoration(node)
 	else
 		-- Note: The only drawback to this approach is that, because of the
 		-- ensure_normal_mode() call in visually_select_range(), it will cancel old and
-		-- create new autocommand on each movement.
-		-- Caveat: The pattern is important because a ModeChanged can cancel the visual selection.
-		dbg:logf("Creating ModeChanged callback: %s", f.mode())
+		-- create new autocommand on each treeclimber traversal.
 		a.nvim_create_autocmd({"ModeChanged"}, {
 			-- Design Decision: Could use explicit pattern since we know we should be in visual
 			-- mode, but the match in the callback is more conservative.
@@ -560,23 +553,28 @@ local function apply_decoration(node)
 			-- match succeeds is safer.
 			--once = true,
 			callback = function(t)
-				dbg:logf("Inside callback: %s", vim.inspect(t))
 				-- Get the second component of the event string (current mode).
 				if f.split(t.match, ":")[2] ~= "v" then
-					print(string.format("Deleting autocommand! %s", t))
 					a.nvim_buf_clear_namespace(0, ns, 0, -1)
-					dbg:logf("Canceled event")
 					-- Return true to delete autocommand.
 					return true
 				end
 			end,
 		})
 	end
+end
+
+---Apply highlights to various regions, defined relative to the selected node.
+---@param node TSNode
+local function apply_decoration(node)
+	argcheck("treeclimber.api.apply_decoration", 1, "userdata", node)
+
+	clear_namespace()
 
 	-- Find out which regions are active so we can avoid setting marks for ones that aren't.
 	local regions = get_active_highlights()
 
-	-- Highlight the actual region.
+	-- Highlight the currently selected node.
 	if regions.TreeClimberHighlight then
 		local sl, sc = unpack({ node:start() })
 		local el, ec = unpack({ node:end_() })
@@ -589,46 +587,51 @@ local function apply_decoration(node)
 	end
 
 	local parent = node:parent()
-
 	if parent then
-		local sl, sc = unpack({ parent:start() })
-		local el, ec = unpack({ parent:end_() })
-
-		if regions.TreeClimberParent then
-			a.nvim_buf_set_extmark(0, ns, sl, sc, {
-				hl_group = "TreeClimberParent",
-				strict = false,
-				end_line = el,
-				end_col = ec,
-			})
-		end
+		local psl, psc = unpack({ parent:start() })
+		local pel, pec = unpack({ parent:end_() })
+		-- Create ParentStart region once; Parent regions will be created between named
+		-- siblings in a subsequent loop.
+		-- Design Decision: Where marks overlap, nvim_buf_set_extmark() uses the bg color of
+		-- the *first* created; creating ParentStart before SiblingStart ensures the start
+		-- of the parent trumps start of first sibling. Note that this issue doesn't arise
+		-- for normal Parent and Sibling regions because the Parents are discontiguous and
+		-- never overlap the Siblings.
 		if regions.TreeClimberParentStart then
-			a.nvim_buf_set_extmark(0, ns, sl, sc, {
-				hl_group = "TreeClimberParentStart"  ,
+			a.nvim_buf_set_extmark(0, ns, psl, psc, {
+				hl_group = "TreeClimberParentStart",
 				strict = false,
+				end_col = psc + 1,
 			})
+			-- Adjust start col for first Parent region.
+			psc = psc + 1
 		end
 
-		if regions.TreeClimberSiblingBoundary or regions.TreeClimberSibling then
-			for child in parent:iter_children() do
-				if child:id() ~= node:id() and child:named() then
-					local csl, csc = unpack({ child:start() })
-					local cel, cec = unpack({ child:end_() })
-					dbg:logf("child: %d %d %d %d", child:range())
-					if regions.TreeClimberSiblingBoundary then
+		-- Loop over children, creating regions for named children and containing parent.
+		-- Rationale: This is the only way to ensure that Parent attributes don't "bleed
+		-- through".
+		-- Note: If the Parent highlight contains only fg/bg colors (no bold, italic, etc.),
+		-- we could probably create a single Parent that spans all.
+		for child in parent:iter_children() do
+			-- Note: Current Parent segment is ended only by a named child.
+			if child:named() then
+				local csl, csc = unpack({ child:start() })
+				local cel, cec = unpack({ child:end_() })
+				-- Don't highlight the current node as sibling.
+				if child:id() ~= node:id() then
+					if regions.TreeClimberSiblingStart then
 						a.nvim_buf_set_extmark(0, ns, csl, csc, {
-							hl_group = "TreeClimberSiblingBoundary",
+							hl_group = "TreeClimberSiblingStart",
 							strict = false,
-							-- end_line = sl,
 							end_col = csc + 1,
 						})
 					end
 
 					if regions.TreeClimberSibling then
 						-- Caveat: Skip the first char of sibling iff
-						-- sibling boundary group disabled.
+						-- SiblingStart group enabled.
 						a.nvim_buf_set_extmark(0, ns, csl,
-							regions.TreeClimberSiblingBoundary and csc + 1 or csc, {
+							regions.TreeClimberSiblingStart and csc + 1 or csc, {
 							hl_group = "TreeClimberSibling",
 							strict = false,
 							end_line = cel,
@@ -636,7 +639,28 @@ local function apply_decoration(node)
 						})
 					end
 				end
+				if regions.TreeClimberParent then
+					-- Close current parent region.
+					a.nvim_buf_set_extmark(0, ns, psl, psc, {
+						hl_group = "TreeClimberParent",
+						strict = false,
+						end_line = csl,
+						end_col = csc,
+					})
+					-- End of sibling begins new parent region.
+					psl, psc = cel, cec
+				end
 			end
+		end
+		-- Create the final parent region (if non-zero length).
+		if regions.TreeClimberParent and (psl < pel or psc < pec) then
+			-- Close parent region.
+			a.nvim_buf_set_extmark(0, ns, psl, psc, {
+				hl_group = "TreeClimberParent",
+				strict = false,
+				end_line = pel,
+				end_col = pec,
+			})
 		end
 	end
 end

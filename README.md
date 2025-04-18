@@ -63,7 +63,9 @@ User your preferred package manager, or the built-in package system (`:help pack
 }
 ```
 
-### Bash command-line installation
+### Manual installation
+
+#### Installation via Bash command-line
 
 ```sh
 mkdir -p ~/.config/nvim/pack/dkendal/opt
@@ -71,17 +73,15 @@ cd ~/.config/nvim/pack/dkendal/opt
 git clone https://github.com/dkendal/nvim-treeclimber.git
 ```
 
-### Neovim package system
+#### Loading via Neovim package system
 
 ```lua
 -- ~/.config/nvim/init.lua
 vim.cmd.packadd('nvim-treeclimber')
-
 require('nvim-treeclimber').setup({ --[[ your config here ]] })
 ```
 
-**Note:** If you omit the option table (or provide an empty one) in the call to `setup()`, treeclimber will use default options and keybindings.
-The following section documents the use of the option table to override defaults.
+**Note:** If you call the `setup()` function without arguments, treeclimber will use the defaults documented in the following section.
 
 ## Configuration
 
@@ -97,7 +97,7 @@ If your override has an invalid format, treeclimber will generally emit a warnin
   -- ** Keymaps **
   -- Each entry of the 'keys' table configures the keymap for a single treeclimber function.
   -- Note: The `keys` key itself can be set to a boolean to enable defaults or disable keymaps altogether.
-  ---@alias modestr "n"|"x"|"o"|"v"|""|"!"
+  ---@alias modestr "n"|"v"|"x"|"s"|"i"|"!"|""
   ---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
   ---@alias KeymapEntry
   ---| boolean                        # true to accept default, false to disable
@@ -145,7 +145,7 @@ If your override has an invalid format, treeclimber will generally emit a warnin
   -- **Note: You can also disable unwanted regions by setting the corresponding key(s) `false`.
   -- E.g., to disable all but the primary selection region (TreeClimberHighlight)...
   --   highlights = {
-  --     TreeClimberSiblingBoundary = false, TreeClimberSibling = false,
+  --     TreeClimberSiblingStart = false, TreeClimberSibling = false,
   --     TreeClimberParent = false, TreeClimberParentStart = false
   --   }
   ---@alias HSLUVHighlight {bg: HSLUV?, fg: HSLUV?, ctermbg: HSLUV?, ctermfg: HSLUV?}
@@ -161,7 +161,7 @@ If your override has an invalid format, treeclimber will generally emit a warnin
   ---@type {[string]: HighlightEntry}
   highlights = {
     TreeClimberHighlight = function(o) return { bg = o.visual.bg.hex } end,
-    TreeClimberSiblingBoundary = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+    TreeClimberSiblingStart = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
     TreeClimberSibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
     TreeClimberParent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
     TreeClimberParentStart = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
@@ -173,9 +173,9 @@ If your override has an invalid format, treeclimber will generally emit a warnin
 ```
 
 ### HSLUV Color Support
-As mentioned in the default option comments, an object of type `HSLUV` is made available to `highlights` option callback functions.
+As mentioned in the default option comments, an object of type `HSLUV` is made available to the `highlights` option callback functions.
 This object facilitates working with *HSL* colors in the more human-friendly *HSLUV* color space.
-Its methods and fields are shown here. For further detail, look in the treeclimber source (vivid/hsl_like.lua).
+Its methods and fields are shown here. For further details, look in the treeclimber source (vivid/hsl_like.lua).
 
 ```lua
 ---@class HSLUV
