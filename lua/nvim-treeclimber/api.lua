@@ -8,6 +8,7 @@ local Stack = require("nvim-treeclimber.stack")
 local RingBuffer = require("nvim-treeclimber.ring_buffer")
 local argcheck = require("nvim-treeclimber.typecheck").argcheck
 
+local dbg = require'dp':get('treeclimber')
 -- FIXME: Remove this once an approach has been finalized.
 local CFG_USE_MODE_CHANGED_EVENT = true
 
@@ -509,13 +510,13 @@ local function is_selected_cursor_start(node, start, end_)
 	return sr == start.row and sc == start.col and er == end_.row and ec == end_.col
 end
 
----@return {TreeClimberHighlight: vim.api.keyset.keymap,
----         TreeClimberSiblingStart: vim.api.keyset.keymap,
----         TreeClimberSibling: vim.api.keyset.keymap,
----         TreeClimberParent: vim.api.keyset.keymap,
----         TreeClimberParentStart: vim.api.keyset.keymap}
+---@return {Selection: vim.api.keyset.keymap,
+---         SiblingStart: vim.api.keyset.keymap,
+---         Sibling: vim.api.keyset.keymap,
+---         Parent: vim.api.keyset.keymap,
+---         ParentStart: vim.api.keyset.keymap}
 local function get_active_highlights()
-	return vim.iter(vim.tbl_keys(Config:get_default("highlights")))
+	return vim.iter(vim.tbl_keys(Config:get_default("display.regions.highlights")))
 		:map(function(k) return {k, a.nvim_get_hl(0, {name = k})} end)
 		:filter(function(kv) return not vim.tbl_isempty(kv[2]) end)
 		:fold({}, function(acc, kv) acc[kv[1]] = kv[2]; return acc end)
@@ -564,8 +565,24 @@ local function clear_namespace()
 	end
 end
 
----Apply highlights to various regions, defined relative to the selected node.
----@param node TSNode
+-- Apply highlights to various regions, defined relative to the selected node.
+-- Important Note: Although it is possibly to set the priority of the highlights attached to
+-- extmarks explicitly using the 'priority' field of the option table passed to
+-- nvim_buf_set_extmark(), this function omits the 'priority' field and relies instead on the order
+-- in which the extmarks are created. To understand how this works, visualize a virtual, sorted
+-- list of extmarks, in which the highlighting of later marks overrides that of earlier marks. Marks
+-- are added by nvim_buf_set_extmark(), which maintains the sort order according to the following
+-- logic... To find the position at which to insert the new mark, traverse the list from the start,
+-- looking for the first mark that meets either of the following conditions:
+-- 1. start point is past start point of the inserted mark
+-- 2. hl_group is different from inserted mark's hl_group, but both the hl_group and start position
+--    of the previous mark match those of the inserted mark.
+-- If such a mark is found, the new mark is added before it; otherwise the new mark is appended.
+-- Another way of visualizing it is that the list is sorted first by mark start point, but multiple
+-- marks added at the same start point undergo an order-preserving sort by hl_group, in which the
+-- relative ordering of the hl_groups is determined by the insert time of the first mark added to
+-- the group at that start position.
+-- @param node TSNode
 local function apply_decoration(node)
 	argcheck("treeclimber.api.apply_decoration", 1, "userdata", node)
 
@@ -574,12 +591,15 @@ local function apply_decoration(node)
 	-- Find out which regions are active so we can avoid setting marks for ones that aren't.
 	local regions = get_active_highlights()
 
+	-- Determine whether attributes bleed through from Parent to Siblings.
+	local inherit_attrs = Config:get("display.regions.inherit_attrs")
+
 	-- Highlight the currently selected node.
-	if regions.TreeClimberHighlight then
+	if regions.Selection then
 		local sl, sc = unpack({ node:start() })
 		local el, ec = unpack({ node:end_() })
 		a.nvim_buf_set_extmark(0, ns, sl, sc, {
-			hl_group = "TreeClimberHighlight",
+			hl_group = "Selection",
 			strict = false,
 			end_line = el,
 			end_col = ec,
@@ -590,76 +610,103 @@ local function apply_decoration(node)
 	if parent then
 		local psl, psc = unpack({ parent:start() })
 		local pel, pec = unpack({ parent:end_() })
-		-- Create ParentStart region once; Parent regions will be created between named
-		-- siblings in a subsequent loop.
-		-- Design Decision: Where marks overlap, nvim_buf_set_extmark() uses the bg color of
-		-- the *first* created; creating ParentStart before SiblingStart ensures the start
-		-- of the parent trumps start of first sibling. Note that this issue doesn't arise
-		-- for normal Parent and Sibling regions because the Parents are discontiguous and
-		-- never overlap the Siblings.
-		if regions.TreeClimberParentStart then
-			a.nvim_buf_set_extmark(0, ns, psl, psc, {
-				hl_group = "TreeClimberParentStart",
-				strict = false,
-				end_col = psc + 1,
-			})
-			-- Adjust start col for first Parent region.
-			psc = psc + 1
-		end
+		-- Save a copy of parent start pos that won't be updated in loop.
+		local psl_, psc_ = psl, psc
 
-		-- Loop over children, creating regions for named children and containing parent.
-		-- Rationale: This is the only way to ensure that Parent attributes don't "bleed
-		-- through".
-		-- Note: If the Parent highlight contains only fg/bg colors (no bold, italic, etc.),
+		if regions.Parent and inherit_attrs then
+			-- Create single Parent region to span all Siblings.
+			-- Note: Creating before any Siblings ensures the latter's colors will take
+			-- precedence in areas of overlap; attrs like bold and italic, however, will
+			-- bleed through.
+			if psl < pel or psc < pec then
+				dbg:logf("Parent: %d %d %d %d", psl, psc, pel, pec)
+				a.nvim_buf_set_extmark(0, ns, psl, psc, {
+					hl_group = "Parent",
+					strict = false,
+					end_line = pel,
+					end_col = pec,
+				})
+			end
+		end
+		-- Loop over children, creating regions for named children only.
+		-- Note: If not inherit_attrs, we'll also be creating discontiguous Parent regions
+		-- in the space between siblings.
+		-- Rationale: This is the only way to ensure that attributes like bold and italic
+		-- don't "bleed through" the Sibling.
+		-- TODO: If the Parent highlight contains only fg/bg colors (no bold, italic, etc.),
 		-- we could probably create a single Parent that spans all.
 		for child in parent:iter_children() do
 			-- Note: Current Parent segment is ended only by a named child.
 			if child:named() then
 				local csl, csc = unpack({ child:start() })
 				local cel, cec = unpack({ child:end_() })
+				if Pos:new(csl, csc) < Pos:new(psl, psc) then
+					dbg:logf("Adjusting child start")
+					csl, csc = psl, psc
+				end
 				-- Don't highlight the current node as sibling.
 				if child:id() ~= node:id() then
-					if regions.TreeClimberSiblingStart then
+					dbg:logf("Named child %d %d %d %d", csl, csc, cel, cec)
+					if regions.SiblingStart then
+						dbg:logf("SiblingStart: %d, %d, end_col=%d", csl, csc, csc + 1)
 						a.nvim_buf_set_extmark(0, ns, csl, csc, {
-							hl_group = "TreeClimberSiblingStart",
+							hl_group = "SiblingStart",
 							strict = false,
 							end_col = csc + 1,
 						})
 					end
 
-					if regions.TreeClimberSibling then
+					if regions.Sibling then
 						-- Caveat: Skip the first char of sibling iff
 						-- SiblingStart group enabled.
+						dbg:logf("Sibling: %d %d %d %d", csl,
+							regions.SiblingStart and csc + 1 or csc, cel, cec)
 						a.nvim_buf_set_extmark(0, ns, csl,
-							regions.TreeClimberSiblingStart and csc + 1 or csc, {
-							hl_group = "TreeClimberSibling",
+							regions.SiblingStart and csc + 1 or csc, {
+							hl_group = "Sibling",
 							strict = false,
 							end_line = cel,
 							end_col = cec,
+							--priority = pris.Sibling,
 						})
 					end
 				end
-				if regions.TreeClimberParent then
-					-- Close current parent region.
-					a.nvim_buf_set_extmark(0, ns, psl, psc, {
-						hl_group = "TreeClimberParent",
-						strict = false,
-						end_line = csl,
-						end_col = csc,
-					})
+				if regions.Parent and not inherit_attrs then
+					if psl < csl or psc < csc then
+						-- Close current parent region (if nonzero width).
+						dbg:logf("Parent: %d %d %d %d", psl, psc, csl, csc)
+						a.nvim_buf_set_extmark(0, ns, psl, psc, {
+							hl_group = "Parent",
+							strict = false,
+							end_line = csl,
+							end_col = csc,
+						})
+					end
 					-- End of sibling begins new parent region.
 					psl, psc = cel, cec
 				end
 			end
 		end
-		-- Create the final parent region (if non-zero length).
-		if regions.TreeClimberParent and (psl < pel or psc < pec) then
-			-- Close parent region.
-			a.nvim_buf_set_extmark(0, ns, psl, psc, {
-				hl_group = "TreeClimberParent",
+		if regions.Parent and not inherit_attrs then
+			-- Create the final discontiguous Parent region (iff it's nonzero length).
+			if psl < pel or psc < pec then
+				a.nvim_buf_set_extmark(0, ns, psl, psc, {
+					hl_group = "Parent",
+					strict = false,
+					end_line = pel,
+					end_col = pec,
+				})
+			end
+		end
+		-- This region is placed last to make it highest priority.
+		-- Rationale: Always show the start of the parent, even at the expense of obscuring
+		-- first char of first child.
+		if regions.ParentStart then
+			dbg:logf("ParentStart: %d %d end_col=%d", psl_, psc_, psc_ + 1)
+			a.nvim_buf_set_extmark(0, ns, psl_, psc_, {
+				hl_group = "ParentStart",
 				strict = false,
-				end_line = pel,
-				end_col = pec,
+				end_col = psc_ + 1,
 			})
 		end
 	end

@@ -8,17 +8,20 @@ local Opt = require"nvim-treeclimber.opt"
 -- Create some type aliases for configuration parameters.
 
 -- ** Keymaps **
----@alias treeclimber.KeymapEntryTable
----| [(string|string[]), string]
-
+---@alias modestr "n"|"v"|"x"|"o"|"s"|"i"|"!"|""
+---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
+---@alias treeclimber.KeymapSingle
+---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
 ---@alias treeclimber.KeymapEntry
----| boolean
----| string
----| treeclimber.KeymapEntryTable
----| treeclimber.KeymapEntryTable[]
-
+---| boolean                        # true to accept default, false to disable
+---| nil                            # accept default (same as omitting the command name from table)
+---| lhs                            # override the default <lhs> (keeping mode(s))
+---| treeclimber.KeymapSingle       # override the default <lhs> and/or modes
+---| treeclimber.KeymapSingle[]     # idem, but allows multiple, mode-specific <lhs>'s
+---All KeymapEntry's will be converted to this by successful validation.
 ---@alias treeclimber.KeymapEntryCanon
----| treeclimber.KeymapEntryTable[]
+---| false
+---| treeclimber.KeymapSingle[]
 
 -- ** Highlights **
 ---@alias treeclimber.HighlightCallback
@@ -30,11 +33,16 @@ local Opt = require"nvim-treeclimber.opt"
 ---| boolean
 ---| nil
 
----@alias treeclimber.HighlightEntryCanon
+-- Deferred or default canonical: ie, either canonical or should will expand to canonical.
+---@alias treeclimber.HighlightEntryDefCanon
 ---| fun(o: {normal: HSLUVHighlight, visual: HSLUVHighlight}) : vim.api.keyset.highlight
 ---| vim.api.keyset.highlight
+---| false
 
--- TODO: Move this to config.lua, having it passed to constructor.
+---@alias treeclimber.HighlightEntryCanon
+---| vim.api.keyset.highlight
+---| false
+
 -- The default option table
 local defaults = {
 	keys = {
@@ -57,33 +65,43 @@ local defaults = {
 		},
 		select_shrink = {{ "n", "x", "o" }, "<M-j>"},
 	},
-	highlights = {
-		TreeClimberHighlight = function(o) return { bold = true, bg = o.visual.bg.hex } end,
-		TreeClimberSiblingStart = false,
-		TreeClimberSibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
-		TreeClimberParent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 80).hex } end,
-		TreeClimberParentStart = false,
+	display = {
+		regions = {
+			highlights = {
+				Selection = function(o) return { bold = true, bg = o.visual.bg.hex } end,
+				SiblingStart = false,
+				Sibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+				Parent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 80).hex } end,
+				ParentStart = false,
+			},
+			inherit_attrs = true
+		},
 	},
 	traversal = {
 	},
-	display = {
-	}
 }
 
 -- Define some helpers.
 function Config.is_mode(x)
-	-- TODO: Decide how many of these should be supported?
-	return type(x) == "string" and x:match("^[nvxsi!]?$")
+	return type(x) == "string" and x:match("^[nvxosi!]?$")
 end
+
 function Config.is_mode_array(x)
 	return vim.islist(x) and vim.iter(x):all(function(x_) return Config.is_mode(x_) end)
 end
-function Config.is_keymap_entry(x)
+
+-- Return true if input is of type treeclimber.KeymapSingle
+-- TODO: Consider adding an is_loose_keymap_entry function or somesuch, which doesn't validate
+-- modes.
+-- Rationale: Could be used to provide better error diagnostics.
+function Config.is_keymap_single(x)
 	return vim.islist(x) and #x == 2 and (Config.is_mode(x[1]) or Config.is_mode_array(x[1]))
 		and type(x[2]) == "string"
 end
+
+-- Return true if input is an array of treeclimber.KeymapSingle
 function Config.is_keymap_entry_array(x)
-	return vim.islist(x) and vim.iter(x):all(function (x_) return Config.is_keymap_entry(x_) end)
+	return vim.islist(x) and vim.iter(x):all(function (x_) return Config.is_keymap_single(x_) end)
 end
 
 function Config:new()

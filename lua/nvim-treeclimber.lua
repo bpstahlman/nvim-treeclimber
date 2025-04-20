@@ -29,30 +29,38 @@ local default_keymap_descriptions = {
 }
 
 -- Validate the input KeymapEntry and return one of the following as the first return value:
---   a KeymapEntryCanon to use with vim.keymap.set(), taking defaults into account if applicable
---   false if the keymap should be disabled
---   nil if the entry is invalid.
+--   * a KeymapEntryCanon to use with vim.keymap.set(), taking defaults into account if applicable
+--   * false if the keymap should be disabled
+--   * nil if the entry is invalid.
 ---@param ut treeclimber.KeymapEntry|nil The user entry to validate (or nil to use default)
 ---@param dt treeclimber.KeymapEntryCanon The corresponding entry from defaults in canonical form
----@return treeclimber.KeymapEntryCanon|false|nil # Keymap entry suitable for use with vim.keymap.set() 
----                                               # false if disabled
----                                               # nil on error
+---@return treeclimber.KeymapEntryCanon|nil # Keymap entry suitable for use with vim.keymap.set() 
+---                                         # false if disabled
+---                                         # nil on error
+---@return string|nil                       # error msg if first return value is nil
 local function parse_keymap_entry(ut, dt)
 	if ut == nil then
-		-- Note: This is not considered error, so return default as first value.
+		-- Note: This is not considered error, so return default (possibly false).
 		return dt
 	end
 	local utyp = type(ut)
-	if utyp == "boolean" then
-		-- Note: Explicit false disables the map without error or warning.
-		return ut and dt or false
-	elseif utyp == "string" then
-		-- Use default entry with overridden lhs.
-		-- TODO: Warn if there really are multiple mode entries?
-		return vim.iter(dt):map(function (x) return {x[1], ut} end):totable()
+	if utyp == "boolean" or utyp == "string" then
+		if dt == false then
+			return nil, "No default keymap defined for this function and user override incomplete"
+		end
+		if utyp == "boolean" then
+			-- Note: Explicit false disables the map without error or warning.
+			return ut and dt or false
+		elseif utyp == "string" then
+			-- Use default entry with overridden lhs.
+			-- TODO: Warn if there really are multiple mode entries?
+			dbg:logf("iter on dt of %s", vim.inspect(dt))
+			return vim.iter(dt):map(function (x) return {x[1], ut} end):totable()
+		end
 	end
-	-- At this point, there are only two valid possibilities left.
-	if Config.is_keymap_entry(ut) then
+	-- At this point, the only valid possibility is a user-supplied table that can be converted
+	-- to canonical form.
+	if Config.is_keymap_single(ut) then
 		-- Return canonical form.
 		return {ut}
 	elseif Config.is_keymap_entry_array(ut) then
@@ -67,6 +75,8 @@ function M.setup_keymaps()
 	local ukeys = Config:get("keys")
 	---@type table<string, treeclimber.KeymapEntryCanon> # Default keys
 	local dkeys = Config:get_default("keys")
+	dbg:logf("setup_keymaps: ukeys=%s", vim.inspect(ukeys))
+	dbg:logf("setup_keymaps: dkeys=%s", vim.inspect(dkeys))
 	-- User can set entire keys option to boolean to enable/disable *all* default maps.
 	if type(ukeys) == "boolean" then
 		if not ukeys then
@@ -92,11 +102,20 @@ function M.setup_keymaps()
 	end
 	-- Loop over default keymap entries.
 	for k, dv in pairs(dkeys) do
-		---@type treeclimber.KeymapEntryCanon|false
+		---@type treeclimber.KeymapEntryCanon
 		local cfg
 		-- Canonicalize default entry.
-		if Config.is_keymap_entry(dv) then
+		dbg:logf("Checking dv=%s", vim.inspect(dv))
+		if Config.is_keymap_single(dv) then
+			dbg:logf("Canonicalizing dv")
+			---@cast dv treeclimber.KeymapSingle
 			dv = {dv}
+		elseif type(dv) == 'table' then
+			-- Make sure it's in canonical form.
+			assert(vim.islist(dv) and
+				vim.iter(dv):all(function (x) return Config.is_keymap_single(x) end),
+				string.format("Internal error: invalid entry in default `keys':"
+				.. " %s => %s", k, vim.inspect(dv)))
 		end
 		if ukeys == dkeys then
 			-- No need to validate default entry
@@ -106,9 +125,12 @@ function M.setup_keymaps()
 			local uv = ukeys[k]
 			-- Get valid KeymapEntryCanon for the current keymap.
 			---@type treeclimber.KeymapEntryCanon|nil|false
-			local cfg_ = parse_keymap_entry(uv, dv)
+			local cfg_, err = parse_keymap_entry(uv, dv)
+			dbg:logf("parse_keymap_entry returned %s", vim.inspect(cfg_))
+			dbg:logf("uv was %s", vim.inspect(cfg_))
 			if cfg_ == nil then
-				Util.error("Ignoring invalid keymap entry for %s: %s", k, vim.inspect(uv))
+				Util.error("Ignoring invalid keymap entry for %s: %s%s",
+					k, vim.inspect(uv), err and " due to error `" .. err .. "'" or "")
 				---@cast dv treeclimber.KeymapEntryCanon
 				cfg = dv
 			else
@@ -121,8 +143,10 @@ function M.setup_keymaps()
 		-- One or more keymaps (corresponding to different mode sets) need to be created for
 		-- the current command.
 		if cfg and type(cfg) == "table" then
+			dbg:logf("name=%s cfg=%s", k, vim.inspect(cfg))
 			-- Loop over the mode sets.
 			for _, c in ipairs(cfg) do
+				dbg:logf("setting keymap: %s %s %s", vim.inspect(c[1]), vim.inspect(c[2]), vim.inspect(tc[k]))
 				vim.keymap.set(c[1], c[2], tc[k], { desc = default_keymap_descriptions[k] })
 			end
 		end
@@ -146,11 +170,12 @@ function M.setup_user_commands()
 end
 
 ---@param uhl treeclimber.HighlightEntry
----@param dhl treeclimber.HighlightEntryCanon
+---@param dhl treeclimber.HighlightEntryDefCanon
 ---@param normal HSLUVHighlight
 ---@param visual HSLUVHighlight
----@return vim.api.keyset.highlight|nil|false cfg The configuration to use or nil if error
----@return vim.api.keyset.highlight|nil fallback The fallback configuration to use on error
+---@return treeclimber.HighlightEntryCanon? cfg Valid hl or false to disable or nil on error
+---@return treeclimber.HighlightEntryCanon? fallback The fallback hl to use on error
+---@return string|nil err An error message in case of fallback
 local function parse_highlight_entry(uhl, dhl, normal, visual)
 	if type(dhl) == "function" then
 		---@cast dhl vim.api.keyset.highlight
@@ -170,11 +195,13 @@ local function parse_highlight_entry(uhl, dhl, normal, visual)
 	local validation_ns = vim.api.nvim_create_namespace("treeclimber.validation")
 	local valid, _ = pcall(vim.api.nvim_set_hl, validation_ns, "ValidationGroup", uhl)
 	if not valid then
-		Util.error("Ignoring invalid user highlight configuration entry: %s", vim.inspect(uhl))
-		return dhl
+		return nil, dhl, string.format("Invalid user highlight entry: %s", vim.inspect(uhl))
 	end
-	-- Now that we know user config is valid, merge it with default.
-	return vim.tbl_deep_extend('force', dhl, uhl)
+	-- Now that we know user config is valid, merge it with default unless default is `false`,
+	-- in which case, just override.
+	-- Note: A default of false is functionally equivalent to {}; default should never be `true`.
+	assert(dhl == false or type(dhl) == 'table', "Internal error: Invalid default highlight: %s", vim.inspect(dhl))
+	return type(dhl) == 'table' and vim.tbl_deep_extend('force', dhl, uhl) or uhl
 end
 
 function M.setup_highlight()
@@ -188,13 +215,13 @@ function M.setup_highlight()
 	assert(not vim.tbl_isempty(Visual), "hi Visual not found")
 	local visual = Hi.HSLUVHighlight:new(Visual)
 
-	local defaults = Config:get_default("highlights")
+	local defaults = Config:get_default("display.regions.highlights")
 	-- Get user overrides.
-	local overrides = Config:get("highlights")
+	local overrides = Config:get("display.regions.highlights")
 	-- Skip if entire "highlights" key is explicit false.
 	if type(overrides) ~= "boolean" or overrides then
 		if overrides ~= nil and (type(overrides) ~= "table" or vim.islist(overrides)) then
-			-- TODO: Alias custom type for this?
+			-- Overall form of display.regions.highlight is invalid.
 			Util.error("Ignoring invalid 'highlights' option: expected dictionary")
 			overrides = nil
 		end
@@ -203,16 +230,18 @@ function M.setup_highlight()
 		for k, dv in pairs(defaults) do
 			-- Note: luals requires an extra nil-check on overrides for some reason.
 			local uv = (overrides == true or overrides == nil) and dv or overrides and overrides[k]
-			-- uv can be explicit false at this point.
+			-- Note: uv can be explicit false (to disable highlight) at this point.
 			if uv then
 				-- Validate and merge to get the vim.api.keyset.highlight to use.
-				local cfg, fallback = parse_highlight_entry(uv, dv, normal, visual)
+				local cfg, fallback, err = parse_highlight_entry(uv, dv, normal, visual)
 				-- Note: If cfg is explicit false, just skip.
 				if cfg or cfg == nil then
 					if cfg == nil then
-						-- TODO: Warn about fallback.
-						Util.error("Ignoring invalid highlights config for " .. k .. ": "
-							.. vim.inspect(uv))
+						-- Warn and use fallback.
+						Util.error(string.format(
+							"Ignoring invalid user-provided highlight for %s"
+							.. ": %s%s", k, vim.inspect(uv),
+							err and ": " .. err or ""))
 					end
 					assert(cfg or fallback, "Internal error: Fallback highlight for " .. k .. " is nil")
 					vim.api.nvim_set_hl(0, k, cfg or fallback or {})
