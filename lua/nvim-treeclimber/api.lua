@@ -8,7 +8,6 @@ local Stack = require("nvim-treeclimber.stack")
 local RingBuffer = require("nvim-treeclimber.ring_buffer")
 local argcheck = require("nvim-treeclimber.typecheck").argcheck
 
-local dbg = require'dp':get('treeclimber')
 -- FIXME: Remove this once an approach has been finalized.
 local CFG_USE_MODE_CHANGED_EVENT = true
 
@@ -66,7 +65,9 @@ end
 -- at the target level.
 
 -- Push range onto the history stack (or overwrite top entry if overwrite == true).
---- @param range Range4
+-- Note: Changed type of range from Range4 to 4-tuple, since the type annotation system complains
+-- when the Range4 returned by node:range() is passed to push_history().
+--- @param range [integer, integer, integer, integer]
 --- @param overwrite boolean?
 local function push_history(range, overwrite)
 	if overwrite then
@@ -619,7 +620,6 @@ local function apply_decoration(node)
 			-- precedence in areas of overlap; attrs like bold and italic, however, will
 			-- bleed through.
 			if psl < pel or psc < pec then
-				dbg:logf("Parent: %d %d %d %d", psl, psc, pel, pec)
 				a.nvim_buf_set_extmark(0, ns, psl, psc, {
 					hl_group = "Parent",
 					strict = false,
@@ -641,14 +641,11 @@ local function apply_decoration(node)
 				local csl, csc = unpack({ child:start() })
 				local cel, cec = unpack({ child:end_() })
 				if Pos:new(csl, csc) < Pos:new(psl, psc) then
-					dbg:logf("Adjusting child start")
 					csl, csc = psl, psc
 				end
 				-- Don't highlight the current node as sibling.
 				if child:id() ~= node:id() then
-					dbg:logf("Named child %d %d %d %d", csl, csc, cel, cec)
 					if regions.SiblingStart then
-						dbg:logf("SiblingStart: %d, %d, end_col=%d", csl, csc, csc + 1)
 						a.nvim_buf_set_extmark(0, ns, csl, csc, {
 							hl_group = "SiblingStart",
 							strict = false,
@@ -659,8 +656,6 @@ local function apply_decoration(node)
 					if regions.Sibling then
 						-- Caveat: Skip the first char of sibling iff
 						-- SiblingStart group enabled.
-						dbg:logf("Sibling: %d %d %d %d", csl,
-							regions.SiblingStart and csc + 1 or csc, cel, cec)
 						a.nvim_buf_set_extmark(0, ns, csl,
 							regions.SiblingStart and csc + 1 or csc, {
 							hl_group = "Sibling",
@@ -674,7 +669,6 @@ local function apply_decoration(node)
 				if regions.Parent and not inherit_attrs then
 					if psl < csl or psc < csc then
 						-- Close current parent region (if nonzero width).
-						dbg:logf("Parent: %d %d %d %d", psl, psc, csl, csc)
 						a.nvim_buf_set_extmark(0, ns, psl, psc, {
 							hl_group = "Parent",
 							strict = false,
@@ -702,7 +696,6 @@ local function apply_decoration(node)
 		-- Rationale: Always show the start of the parent, even at the expense of obscuring
 		-- first char of first child.
 		if regions.ParentStart then
-			dbg:logf("ParentStart: %d %d end_col=%d", psl_, psc_, psc_ + 1)
 			a.nvim_buf_set_extmark(0, ns, psl_, psc_, {
 				hl_group = "ParentStart",
 				strict = false,

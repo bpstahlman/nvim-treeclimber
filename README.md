@@ -99,15 +99,15 @@ If your override has an invalid format, treeclimber will generally emit a warnin
   -- Note: The `keys` key itself can be set to a boolean to enable defaults or disable keymaps altogether.
   ---@alias modestr "n"|"v"|"x"|"o"|"s"|"i"|"!"|""
   ---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
-  ---@alias treeclimber.KeymapSingle
+  ---@alias KeymapSingle
   ---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
-  ---@alias treeclimber.KeymapEntry
+  ---@alias KeymapEntry
   ---| boolean                        # true to accept default, false to disable
   ---| nil                            # accept default (same as omitting the command name from table)
   ---| lhs                            # override the default <lhs> (keeping mode(s))
-  ---| treeclimber.KeymapSingle       # override the default <lhs> and/or modes
-  ---| treeclimber.KeymapSingle[]     # idem, but allows multiple, mode-specific <lhs>'s
-  ---@type {[string]: KeymapEntry}
+  ---| KeymapSingle                   # override the default <lhs> and/or modes
+  ---| KeymapSingle[]                 # idem, but allows multiple, mode-specific <lhs>'s
+  ---@type table<string, KeymapEntry>
   keys = {
     show_control_flow = { "n", "<leader>k"},
     select_current_node = {
@@ -128,47 +128,46 @@ If your override has an invalid format, treeclimber will generally emit a warnin
     select_shrink = {{ "n", "x", "o" }, "<M-j>"},
   },
 
-  -- # Display
+  -- ** Display **
   display = {
     regions = {
-      -- Each entry in the table below defines the highlighting treeclimber applies to one of several regions
-      -- relative to the current selection and its siblings/parent. To override the highlighting for a
-      -- specific region, set the corresponding key to either a `vim.api.keyset.highlight` or a callback
-      -- function that returns one. The callback will be invoked upon colorscheme load with an `HSLUVHighlights`
-      -- object that may be used to "mix" new colors from the currently active normal and visual mode fg/bg colors.
-      -- **Important Note: The `HSLUV` class provides many color-manipulation methods in addition to the `mix()`
-      -- method used in the defaults. The class's type annotation is provided in the next section. If you require
-      -- more detail, look in "vivid/hsl_like.lua" in the treeclimber source.
-      -- 
-      -- **Note: The `vim.api.keyset.highlight` can be used to specify more than just fg/bg colors: e.g., the
-      -- following override would make the currently selected region bold and its siblings italic:
+      -- Each entry in the table below defines the highlighting applied to one of several regions
+      -- relative to the current selection and its siblings/parent. To override the highlighting
+      -- for a specific region, set the corresponding key to either a `vim.api.keyset.highlight` or
+      -- a callback function that returns one. The callback will be invoked upon colorscheme load
+      -- with an `HSLUVHighlights` object that may be used to "mix" new colors from the currently
+      -- active normal and visual mode fg/bg colors.
+      -- Important Note: The `HSLUV` class provides many color-manipulation methods in addition to
+      -- the `mix()` method used in the defaults. The class's type annotation is provided in the
+      -- next section. Additional detail may be found in "vivid/hsl_like.lua" in the treeclimber
+      -- source.
+      -- Note: The `vim.api.keyset.highlight` can be used to specify more than just fg/bg colors:
+      -- e.g., the following override would make the currently selected region bold and its siblings
+      -- italic:
       --   highlights = {
       --     Selection = {bold = true},
       --     Sibling = {italic = true)
       --   }
-      -- **Note: You can also disable unwanted regions by setting the corresponding key(s) `false`.
+      -- Note: You can also disable unwanted regions by setting the corresponding key(s) `false`.
       -- E.g., to disable all but the primary selection region (Selection)...
       --   highlights = {
-      --     SiblingStart = false, Sibling = false,
-      --     Parent = false, ParentStart = false
+      --     SiblingStart = false, Sibling = false, Parent = false, ParentStart = false
       --   }
       ---@alias HSLUVHighlight {bg: HSLUV?, fg: HSLUV?, ctermbg: HSLUV?, ctermfg: HSLUV?}
-      ---@alias HSLUVHighlights
-      ---| {normal: HSLUVHighlight, visual: HSLUVHighlight}
-      ---@alias HighlightCallback
-      ---| fun(o: HSLUVHighlights) : vim.api.keyset.highlight
+      ---@alias HSLUVHighlights {normal: HSLUVHighlight, visual: HSLUVHighlight}
+      ---@alias HighlightCallback fun(o: HSLUVHighlights) : vim.api.keyset.highlight
       ---@alias HighlightEntry
-      ---| vim.api.keyset.highlight   # to be provided to `nvim_set_hl()`
+      ---| vim.api.keyset.highlight   # passed to `nvim_set_hl()`
       ---| HighlightCallback          # must return a `vim.api.keyset.highlight`
       ---| boolean                    # true for default highlighting, false to disable the group
       ---| nil                        # default highlighting
-      ---@type {[string]: HighlightEntry}
+      ---@type table<string, HighlightEntry>
       highlights = {
-        Selection = function(o) return { bg = o.visual.bg.hex } end,
-        SiblingStart = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+        Selection = function(o) return { bold = true, bg = o.visual.bg.hex } end,
+        SiblingStart = false,
         Sibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
-        Parent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
-        ParentStart = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+        Parent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 80).hex } end,
+        ParentStart = false,
       },
       -- When `true`, Sibling regions inherit highlight attributes like bold and italic
       -- from Parent regions.

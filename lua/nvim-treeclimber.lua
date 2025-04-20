@@ -4,14 +4,12 @@ local Config = require('nvim-treeclimber.config')
 local Util = require('nvim-treeclimber.util')
 local Hi = require("nvim-treeclimber.hi")
 
-local dbg = require'dp':get('treeclimber')
-
 -- Re-export nvim-treeclimber.api
 for k, v in pairs(tc) do
 	M[k] = v
 end
 
--- Keymap descriptions
+-- Keymap descriptions (used in call to vim.keymap.set)
 local default_keymap_descriptions = {
 	show_control_flow = "",
 	select_current_node = "Treeclimber select current node",
@@ -54,7 +52,6 @@ local function parse_keymap_entry(ut, dt)
 		elseif utyp == "string" then
 			-- Use default entry with overridden lhs.
 			-- TODO: Warn if there really are multiple mode entries?
-			dbg:logf("iter on dt of %s", vim.inspect(dt))
 			return vim.iter(dt):map(function (x) return {x[1], ut} end):totable()
 		end
 	end
@@ -75,8 +72,6 @@ function M.setup_keymaps()
 	local ukeys = Config:get("keys")
 	---@type table<string, treeclimber.KeymapEntryCanon> # Default keys
 	local dkeys = Config:get_default("keys")
-	dbg:logf("setup_keymaps: ukeys=%s", vim.inspect(ukeys))
-	dbg:logf("setup_keymaps: dkeys=%s", vim.inspect(dkeys))
 	-- User can set entire keys option to boolean to enable/disable *all* default maps.
 	if type(ukeys) == "boolean" then
 		if not ukeys then
@@ -105,9 +100,7 @@ function M.setup_keymaps()
 		---@type treeclimber.KeymapEntryCanon
 		local cfg
 		-- Canonicalize default entry.
-		dbg:logf("Checking dv=%s", vim.inspect(dv))
 		if Config.is_keymap_single(dv) then
-			dbg:logf("Canonicalizing dv")
 			---@cast dv treeclimber.KeymapSingle
 			dv = {dv}
 		elseif type(dv) == 'table' then
@@ -126,8 +119,6 @@ function M.setup_keymaps()
 			-- Get valid KeymapEntryCanon for the current keymap.
 			---@type treeclimber.KeymapEntryCanon|nil|false
 			local cfg_, err = parse_keymap_entry(uv, dv)
-			dbg:logf("parse_keymap_entry returned %s", vim.inspect(cfg_))
-			dbg:logf("uv was %s", vim.inspect(cfg_))
 			if cfg_ == nil then
 				Util.error("Ignoring invalid keymap entry for %s: %s%s",
 					k, vim.inspect(uv), err and " due to error `" .. err .. "'" or "")
@@ -143,10 +134,8 @@ function M.setup_keymaps()
 		-- One or more keymaps (corresponding to different mode sets) need to be created for
 		-- the current command.
 		if cfg and type(cfg) == "table" then
-			dbg:logf("name=%s cfg=%s", k, vim.inspect(cfg))
 			-- Loop over the mode sets.
 			for _, c in ipairs(cfg) do
-				dbg:logf("setting keymap: %s %s %s", vim.inspect(c[1]), vim.inspect(c[2]), vim.inspect(tc[k]))
 				vim.keymap.set(c[1], c[2], tc[k], { desc = default_keymap_descriptions[k] })
 			end
 		end
