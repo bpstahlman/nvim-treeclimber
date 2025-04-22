@@ -26,6 +26,13 @@ local default_keymap_descriptions = {
 	select_grow_backward = "Treeclimber add the next node to the selection",
 }
 
+-- User command descriptions (used in call to nvim_create_user_command)
+local default_command_descriptions = {
+	diff_this = "Diff two visual selections based on their AST difference.",
+	highlight_external_definitions = "WIP",
+	show_control_flow = "Populate the quick fix with all branches required to reach the current node.",
+}
+
 -- Validate the input KeymapEntry and return one of the following as the first return value:
 --   * a KeymapEntryCanon to use with vim.keymap.set(), taking defaults into account if applicable
 --   * false if the keymap should be disabled
@@ -69,9 +76,9 @@ end
 
 function M.setup_keymaps()
 	---@type table<string, treeclimber.KeymapEntry>|boolean
-	local ukeys = Config:get("keys")
+	local ukeys = Config:get("ui.keys")
 	---@type table<string, treeclimber.KeymapEntryCanon> # Default keys
-	local dkeys = Config:get_default("keys")
+	local dkeys = Config:get_default("ui.keys")
 	-- User can set entire keys option to boolean to enable/disable *all* default maps.
 	if type(ukeys) == "boolean" then
 		if not ukeys then
@@ -90,8 +97,8 @@ function M.setup_keymaps()
 				:filter(function(x) return dkeys[x] == nil end)
 				:join(", ")
 			if #unk_keys > 0 then
-				Util.error("Ignoring user 'keys' option with invalid key(s): %s", unk_keys)
-				ukeys = dkeys
+				-- Design Decision: Fall through to use any valid keys.
+				Util.error("Ignoring the following invalid keys in the 'keys' option: %s", unk_keys)
 			end
 		end
 	end
@@ -143,19 +150,79 @@ function M.setup_keymaps()
 end
 
 function M.setup_user_commands()
-	vim.api.nvim_create_user_command("TCDiffThis", tc.diff_this, { force = true, range = true, desc = "" })
+	---@type table<string, treeclimber.UserCommandEntry>
+	local ucmds = Config:get("ui.cmds")
+	---@type table<string, treeclimber.UserCommandEntryCanon> # Default keys
+	local dcmds = Config:get_default("ui.cmds")
+	-- User can set entire cmds option to boolean to enable/disable *all* default user commands.
+	if type(ucmds) == "boolean" then
+		if not ucmds then
+			-- User has disabled keymaps! Nothing do do...
+			return
+		end
+		-- User has requested defaults.
+		ucmds = dcmds
+	elseif type(ucmds) == "table" then
+		-- Make sure it's the right kind of table.
+		if vim.isarray(ucmds) and not vim.tbl_isempty(ucmds) then
+			Util.error("Ignoring invalid 'cmds' option: %s", vim.inspect(ucmds))
+			ucmds = dcmds
+		else
+			-- Make sure all keys are valid.
+			local unk_cmds = vim.iter(vim.tbl_keys(ucmds))
+				:filter(function(x) return dcmds[x] == nil end)
+				:join(", ")
+			if #unk_cmds > 0 then
+				-- Design Decision: Fall through to use any valid keys.
+				Util.error("Ignoring the following invalid keys in the 'cmds' option: %s", unk_cmds)
+			end
+		end
+	else
+		Util.error("Ignoring invalid 'cmds' option: %s", vim.inspect(ucmds))
+		ucmds = dcmds
+	end
 
-	vim.api.nvim_create_user_command(
-		"TCHighlightExternalDefinitions",
-		tc.highlight_external_definitions,
-		{ force = true, range = true, desc = "WIP" }
-	)
+	-- Loop over default user command entries.
+	for k, dv in pairs(dcmds) do
+		---@type treeclimber.UserCommandEntryCanon
+		local cfg
+		assert(type(dv) == 'string' or dv == false,
+			string.format("Internal error: Invalid default user command entry for %s: %s",
+			k, vim.inspect(dv)))
+		-- Note: If using all defaults, ucmds may refer to dcmds at this point.
+		local uv = ucmds[k]
+		if type(uv) ~= 'boolean' and type(uv) ~= 'string' and uv ~= nil then
+			-- Type of user entry is invalid.
+			Util.error("Ignoring invalid user command entry for %s: %s",
+				k, vim.inspect(uv))
+			cfg = dv
+		else
+			-- Overall form of user entry appears valid.
+			if type(uv) == 'string' then
+				if string.match(uv, [[^%u[%w_]+$]]) then
+					cfg = uv
+				else
+					Util.error("Ignoring invalid user command name: %s", uv)
+					cfg = dv
+				end
+			elseif uv == true or uv == nil then
+				-- Accept default.
+				cfg = dv
+			else
+				cfg = false -- disable
+			end
+		end
 
-	vim.api.nvim_create_user_command("TCShowControlFlow", tc.show_control_flow, {
-		force = true,
-		range = true,
-		desc = "Populate the quick fix with all branches required to reach the current node",
-	})
+		-- Note: This test (as opposed to simpler `if cfg') is necessitated by what appears
+		-- to be a LuaLS bug: type system should see that cfg can't be true, but thinks it
+		-- can be.
+		if type(cfg) == 'string' then
+			-- Create user command.
+			vim.api.nvim_create_user_command(cfg, tc[k], {
+				force = true, range = true, desc = default_command_descriptions[k]
+			})
+		end
+	end
 end
 
 ---@param uhl treeclimber.HighlightEntry

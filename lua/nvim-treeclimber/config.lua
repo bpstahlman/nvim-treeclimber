@@ -13,47 +13,63 @@ local Opt = require"nvim-treeclimber.opt"
 
 -- The default option table
 local defaults = {
-	-- ** Keymaps **
-	---@alias modestr "n"|"v"|"x"|"o"|"s"|"i"|"!"|""
-	---@alias lhs string                # Used as <lhs> in call to `vim.keymap.set`
-	---@alias treeclimber.KeymapSingle
-	---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
-	---@alias treeclimber.KeymapEntry
-	---| boolean                        # true to accept default, false to disable
-	---| nil                            # accept default (same as omitting the command name from table)
-	---| lhs                            # override the default <lhs> (keeping mode(s))
-	---| treeclimber.KeymapSingle       # override the default <lhs> and/or modes
-	---| treeclimber.KeymapSingle[]     # idem, but allows multiple, mode-specific <lhs>'s
-	-- All entries in the default option table must be of this type.
-	-- TODO: Consider changing the defaults from <M-...> to <A-...>.
-	---@alias treeclimber.KeymapEntryDefCanon
-	---| false
-	---| treeclimber.KeymapSingle
-	---| treeclimber.KeymapSingle[]
-	-- All KeymapEntry's are converted to this by successful validation.
-	---@alias treeclimber.KeymapEntryCanon
-	---| false
-	---| treeclimber.KeymapSingle[]
-	---@type table<string, treeclimber.KeymapEntryDefCanon>
-	keys = {
-		show_control_flow = { "n", "<leader>k"},
-		select_current_node = {
-			{"n", "<A-k>"},
-			{{ "x", "o" }, "i."}},
-		-- TODO: These two seem to be misnamed.
-		select_siblings_backward = {{ "n", "x", "o" }, "<M-[>"},
-		select_siblings_forward = {{ "n", "x", "o" }, "<M-]>"},
-		select_top_level = {{ "n", "x", "o" }, "<M-g>"},
-		select_forward = {{ "n", "x", "o" }, "<M-l>"},
-		select_backward = {{ "n", "x", "o" }, "<M-h>"},
-		select_forward_end = {{ "n", "x", "o" }, "<M-e>"},
-		select_grow_forward = {{ "n", "x", "o" }, "<M-L>"},
-		select_grow_backward = {{ "n", "x", "o" }, "<M-H>"},
-		select_expand = {
-			{{"x", "o"}, "a."},
-			{{"n", "x", "o"}, "<M-k>"}
+	ui = {
+		-- ** Keymaps **
+		---@alias modestr "n"|"v"|"x"|"o"|"s"|"i"|"!"|""
+		---@alias lhs string                # Used as <lhs> in call to `vim.keymap.set`
+		---@alias treeclimber.KeymapSingle
+		---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
+		---@alias treeclimber.KeymapEntry
+		---| boolean                        # true to accept default, false to disable
+		---| nil                            # accept default (same as omitting command name from table)
+		---| lhs                            # override the default <lhs> (keeping mode(s))
+		---| treeclimber.KeymapSingle       # override the default <lhs> and/or modes
+		---| treeclimber.KeymapSingle[]     # idem, but allows multiple, mode-specific <lhs>'s
+		-- All entries in the default option table must be of this type.
+		-- TODO: Consider changing the defaults from <M-...> to <A-...>.
+		---@alias treeclimber.KeymapEntryDefCanon
+		---| false
+		---| treeclimber.KeymapSingle
+		---| treeclimber.KeymapSingle[]
+		-- All KeymapEntry's are converted to this by successful validation.
+		---@alias treeclimber.KeymapEntryCanon
+		---| false
+		---| treeclimber.KeymapSingle[]
+		---@type table<string, treeclimber.KeymapEntryDefCanon>
+		keys = {
+			show_control_flow = { "n", "<leader>k"},
+			select_current_node = {
+				{"n", "<A-k>"},
+				{{ "x", "o" }, "i."}},
+			-- TODO: These two seem to be misnamed.
+			select_siblings_backward = {{ "n", "x", "o" }, "<M-[>"},
+			select_siblings_forward = {{ "n", "x", "o" }, "<M-]>"},
+			select_top_level = {{ "n", "x", "o" }, "<M-g>"},
+			select_forward = {{ "n", "x", "o" }, "<M-l>"},
+			select_backward = {{ "n", "x", "o" }, "<M-h>"},
+			select_forward_end = {{ "n", "x", "o" }, "<M-e>"},
+			select_grow_forward = {{ "n", "x", "o" }, "<M-L>"},
+			select_grow_backward = {{ "n", "x", "o" }, "<M-H>"},
+			select_expand = {
+				{{"x", "o"}, "a."},
+				{{"n", "x", "o"}, "<M-k>"}
+			},
+			select_shrink = {{ "n", "x", "o" }, "<M-j>"},
 		},
-		select_shrink = {{ "n", "x", "o" }, "<M-j>"},
+		-- ** User Commands **
+		-- Each entry of the 'cmds table configures the user command for a single treeclimber function.
+		---@alias treeclimber.UserCommandEntry
+		---| string   # user command name to create for this operation
+		---| boolean  # true to enable the default command, false to disable
+		-- The default entry is like UserCommandEntry except that true is disallowed, since the
+		-- entry must define a default command name.
+		---@alias treeclimber.UserCommandEntryCanon string|false
+		---@type {[string]: treeclimber.UserCommandEntryCanon}
+		cmds = {
+			diff_this = "TCDiffThis",
+			highlight_external_definitions = "TCHighlightExternalDefinitions",
+			show_control_flow = "TCShowControlFlow",
+		},
 	},
 	display = {
 		regions = {
@@ -123,6 +139,8 @@ end
 -- an Opt managing pure defaults (since user could not have called setup() at that point). If a
 -- subsequent user call to setup() provides an option table override, we'll construct a new Opt
 -- encapsulating it; otherwise, we'll just keep the existing one.
+-- Rationale: This approach ensures things will work even if user skips call to setup() and calls
+-- (eg) setup_keymaps() manually.
 function Config:new()
 	local obj = {
 		-- Start with a default Opt, which may be overridden later with setup().

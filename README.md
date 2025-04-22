@@ -94,38 +94,55 @@ If your override has an invalid format, treeclimber will generally emit a warnin
 
 ```lua
 {
-  -- ** Keymaps **
-  -- Each entry of the 'keys' table configures the keymap for a single treeclimber function.
-  -- Note: The `keys` key itself can be set to a boolean to enable defaults or disable keymaps altogether.
-  ---@alias modestr "n"|"v"|"x"|"o"|"s"|"i"|"!"|""
-  ---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
-  ---@alias KeymapSingle
-  ---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
-  ---@alias KeymapEntry
-  ---| boolean                        # true to accept default, false to disable
-  ---| nil                            # accept default (same as omitting the command name from table)
-  ---| lhs                            # override the default <lhs> (keeping mode(s))
-  ---| KeymapSingle                   # override the default <lhs> and/or modes
-  ---| KeymapSingle[]                 # idem, but allows multiple, mode-specific <lhs>'s
-  ---@type table<string, KeymapEntry>
-  keys = {
-    show_control_flow = { "n", "<leader>k"},
-    select_current_node = {
-      {"n", "<A-k>"},
-      {{ "x", "o" }, "i."}},
-    select_siblings_backward = {{ "n", "x", "o" }, "<M-[>"},
-    select_siblings_forward = {{ "n", "x", "o" }, "<M-]>"},
-    select_top_level = {{ "n", "x", "o" }, "<M-g>"},
-    select_forward = {{ "n", "x", "o" }, "<M-l>"},
-    select_backward = {{ "n", "x", "o" }, "<M-h>"},
-    select_forward_end = {{ "n", "x", "o" }, "<M-e>"},
-    select_grow_forward = {{ "n", "x", "o" }, "<M-L>"},
-    select_grow_backward = {{ "n", "x", "o" }, "<M-H>"},
-    select_expand = {
-      {{"x", "o"}, "a."},
-      {{"n", "x", "o"}, "<M-k>"}
+  ui = {
+    -- ** Keymaps **
+    -- Each entry of the 'keys' table configures the keymap for a single treeclimber function.
+    -- Note: The `keys` key itself can be set to a boolean to enable defaults or disable keymaps
+    -- altogether.
+    ---@alias modestr "n"|"v"|"x"|"o"|"s"|"i"|"!"|""
+    ---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
+    ---@alias KeymapSingle
+    ---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
+    ---@alias KeymapEntry
+    ---| boolean                        # true to accept default, false to disable
+    ---| nil                            # accept default (same as omitting the command name from table)
+    ---| lhs                            # override the default <lhs> (keeping mode(s))
+    ---| KeymapSingle                   # override the default <lhs> and/or modes
+    ---| KeymapSingle[]                 # idem, but allows multiple, mode-specific <lhs>'s
+    ---@type table<string, KeymapEntry>
+    keys = {
+      show_control_flow = { "n", "<leader>k"},
+      select_current_node = {
+        {"n", "<A-k>"},
+        {{ "x", "o" }, "i."}},
+      select_siblings_backward = {{ "n", "x", "o" }, "<M-[>"},
+      select_siblings_forward = {{ "n", "x", "o" }, "<M-]>"},
+      select_top_level = {{ "n", "x", "o" }, "<M-g>"},
+      select_forward = {{ "n", "x", "o" }, "<M-l>"},
+      select_backward = {{ "n", "x", "o" }, "<M-h>"},
+      select_forward_end = {{ "n", "x", "o" }, "<M-e>"},
+      select_grow_forward = {{ "n", "x", "o" }, "<M-L>"},
+      select_grow_backward = {{ "n", "x", "o" }, "<M-H>"},
+      select_expand = {
+        {{"x", "o"}, "a."},
+        {{"n", "x", "o"}, "<M-k>"}
+      },
+      select_shrink = {{ "n", "x", "o" }, "<M-j>"},
     },
-    select_shrink = {{ "n", "x", "o" }, "<M-j>"},
+
+    -- ** User commands **
+    -- Each entry of the 'cmds table configures the user command for a single treeclimber function.
+    -- Note: The 'cmds' key itself can be set to a boolean to enable the defaults or disable user
+    -- commands altogether.
+    ---@alias UserCommandEntry
+    ---| string  # desired name of the user command for this function
+    ---| boolean # true to create the command with the default name, false to disable
+    ---@type {[string]: UserCommandEntry}|boolean
+    cmds = {
+      diff_this = "TCDiffThis",
+      highlight_external_definitions = "TCHighlightExternalDefinitions",
+      show_control_flow = "TCShowControlFlow",
+    },
   },
 
   -- ** Display **
@@ -173,9 +190,6 @@ If your override has an invalid format, treeclimber will generally emit a warnin
       -- from Parent regions.
       inherit_attrs = true,
     },
-  },
-  features = {
-        -- TODO...
   },
 }
 ```
