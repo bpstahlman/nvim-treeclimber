@@ -852,7 +852,7 @@ function api.select_backward()
 	apply_decoration(node)
 end
 
-function api.select_siblings_backward()
+function api.select_first_sibling()
 	local start, end_ = api.buf.get_selection_range():positions()
 	local node = get_covering_node(start, end_)
 
@@ -872,7 +872,7 @@ end
 -- TODO: Consider whether it would be better to select first or last sibling *at same level* as
 -- multiply-selected nodes. (Current logic will select first or last sibling of parent when multiple
 -- nodes are selected.)
-function api.select_siblings_forward()
+function api.select_last_sibling()
 	local start, end_ = api.buf.get_selection_range():positions()
 	local node = get_covering_node(start, end_)
 

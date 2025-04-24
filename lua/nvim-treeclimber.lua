@@ -9,14 +9,21 @@ for k, v in pairs(tc) do
 	M[k] = v
 end
 
+-- Define some aliases for functions whose names don't match their behavior.
+-- Rationale: The descriptions in the README say "select first/last sibling"; however, for
+-- backwards-compatibility reasons, we still need to support the old names.
+-- Design Decision: Not necessary to support the old names as keys in the new option table, since
+-- users who create an option table will see only the new names in the documentation.
+M.select_siblings_backward = M.select_first_sibling
+M.select_siblings_forward = M.select_last_sibling
+
 -- Keymap descriptions (used in call to vim.keymap.set)
 local default_keymap_descriptions = {
 	show_control_flow = "",
 	select_current_node = "Treeclimber select current node",
 	select_forward_end = "Treeclimber select and move to the end of the node, or the end of the next node",
-	-- TODO: These two seem to be misnamed.
-	select_siblings_backward = "Treeclimber select first sibling node",
-	select_siblings_forward = "Treeclimber select last sibling node",
+	select_first_sibling = "Treeclimber select first sibling node",
+	select_last_sibling = "Treeclimber select last sibling node",
 	select_top_level = "Treeclimber select the top level node from the current position",
 	select_backward = "Treeclimber select previous node",
 	select_shrink = "Treeclimber select child node",
@@ -229,10 +236,11 @@ end
 ---@param dhl treeclimber.HighlightEntryDefCanon
 ---@param normal HSLUVHighlight
 ---@param visual HSLUVHighlight
+---@param replace_defaults boolean Whether default hl is replaced by or merged with user override
 ---@return treeclimber.HighlightEntryCanon? cfg Valid hl or false to disable or nil on error
 ---@return treeclimber.HighlightEntryCanon? fallback The fallback hl to use on error
 ---@return string|nil err An error message in case of fallback
-local function parse_highlight_entry(uhl, dhl, normal, visual)
+local function parse_highlight_entry(uhl, dhl, normal, visual, replace_defaults)
 	if type(dhl) == "function" then
 		---@cast dhl vim.api.keyset.highlight
 		dhl = dhl({normal = normal, visual = visual})
@@ -253,11 +261,12 @@ local function parse_highlight_entry(uhl, dhl, normal, visual)
 	if not valid then
 		return nil, dhl, string.format("Invalid user highlight entry: %s", vim.inspect(uhl))
 	end
-	-- Now that we know user config is valid, merge it with default unless default is `false`,
-	-- in which case, just override.
+	-- Now that we know user config is valid, merge it with default unless default is `false` or
+	-- the 'replace_defaults' option is set, in which case, we use user highlight as is.
 	-- Note: A default of false is functionally equivalent to {}; default should never be `true`.
 	assert(dhl == false or type(dhl) == 'table', "Internal error: Invalid default highlight: %s", vim.inspect(dhl))
-	return type(dhl) == 'table' and vim.tbl_deep_extend('force', dhl, uhl) or uhl
+	return type(dhl) == 'table' and not replace_defaults
+		and vim.tbl_deep_extend('force', dhl, uhl) or uhl
 end
 
 function M.setup_highlight()
@@ -274,6 +283,8 @@ function M.setup_highlight()
 	local defaults = Config:get_default("display.regions.highlights")
 	-- Get user overrides.
 	local overrides = Config:get("display.regions.highlights")
+	-- Determine whether default highlights are replace by or merged with user overrides.
+	local replace_defaults = Config:get("display.regions.replace_defaults")
 	-- Skip if entire "highlights" key is explicit false.
 	if type(overrides) ~= "boolean" or overrides then
 		if overrides ~= nil and (type(overrides) ~= "table" or vim.islist(overrides)) then
@@ -289,7 +300,8 @@ function M.setup_highlight()
 			-- Note: uv can be explicit false (to disable highlight) at this point.
 			if uv then
 				-- Validate and merge to get the vim.api.keyset.highlight to use.
-				local cfg, fallback, err = parse_highlight_entry(uv, dv, normal, visual)
+				local cfg, fallback, err = parse_highlight_entry(
+					uv, dv, normal, visual, replace_defaults)
 				-- Note: If cfg is explicit false, just skip.
 				if cfg or cfg == nil then
 					if cfg == nil then

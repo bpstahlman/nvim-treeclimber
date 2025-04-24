@@ -22,7 +22,7 @@ local defaults = {
 		---@alias treeclimber.KeymapEntry
 		---| boolean                        # true to accept default, false to disable
 		---| nil                            # accept default (same as omitting command name from table)
-		---| lhs                            # override the default <lhs> (keeping mode(s))
+		---| lhs                            # override the default <lhs> in default mode(s)
 		---| treeclimber.KeymapSingle       # override the default <lhs> and/or modes
 		---| treeclimber.KeymapSingle[]     # idem, but allows multiple, mode-specific <lhs>'s
 		-- All entries in the default option table must be of this type.
@@ -38,12 +38,9 @@ local defaults = {
 		---@type table<string, treeclimber.KeymapEntryDefCanon>
 		keys = {
 			show_control_flow = { "n", "<leader>k"},
-			select_current_node = {
-				{"n", "<A-k>"},
-				{{ "x", "o" }, "i."}},
-			-- TODO: These two seem to be misnamed.
-			select_siblings_backward = {{ "n", "x", "o" }, "<M-[>"},
-			select_siblings_forward = {{ "n", "x", "o" }, "<M-]>"},
+			select_current_node = {{ "x", "o" }, "i."},
+			select_first_sibling = {{ "n", "x", "o" }, "<M-[>"},
+			select_last_sibling = {{ "n", "x", "o" }, "<M-]>"},
 			select_top_level = {{ "n", "x", "o" }, "<M-g>"},
 			select_forward = {{ "n", "x", "o" }, "<M-l>"},
 			select_backward = {{ "n", "x", "o" }, "<M-h>"},
@@ -94,15 +91,18 @@ local defaults = {
 			---| false
 			---@type table<string, treeclimber.HighlightEntryDefCanon>
 			highlights = {
+				-- Note: Overriding bg color of the visual selection doesn't work very well.
 				Selection = function(o) return { bold = true, bg = o.visual.bg.hex } end,
 				SiblingStart = false,
 				Sibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
 				Parent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 80).hex } end,
 				ParentStart = false,
 			},
-			-- true causes attributes like bold and italic to "bleed through" from Parent
+			-- `true` to cause attributes like bold and italic to "bleed through" from Parent
 			-- to Siblings.
-			inherit_attrs = true
+			inherit_attrs = true,
+			-- `true` to replace default 'highlights' with user overrides, false or nil to merge
+			replace_defaults = false,
 		},
 	},
 	traversal = {

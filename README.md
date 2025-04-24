@@ -81,11 +81,11 @@ vim.cmd.packadd('nvim-treeclimber')
 require('nvim-treeclimber').setup({ --[[ your config here ]] })
 ```
 
-**Note:** If you call the `setup()` function without arguments, treeclimber will use the defaults documented in the following section.
+**Note:** If you call the `setup()` function without arguments, treeclimber uses the defaults documented in the following section.
 
 ## Configuration
 
-To override specific elements of the default configuration, provide an option table containing only the keys you wish to change.
+To override specific elements of the default configuration, provide a sparse option table containing only the keys you wish to change.
 The default option table is provided below, with comments documenting the meanings of the various keys.
 Any table you provide to `setup()` will be merged into this one, with preference given to your override.
 If your override has an invalid format, treeclimber will generally emit a warning and fall back to the default setting.
@@ -100,23 +100,21 @@ If your override has an invalid format, treeclimber will generally emit a warnin
     -- Note: The `keys` key itself can be set to a boolean to enable defaults or disable keymaps
     -- altogether.
     ---@alias modestr "n"|"v"|"x"|"o"|"s"|"i"|"!"|""
-    ---@alias lhs string # Used as <lhs> in call to `vim.keymap.set`
+    ---@alias lhs string                # Used as <lhs> in call to `vim.keymap.set`
     ---@alias KeymapSingle
     ---| [(modestr|modestr[]), lhs]     # override the default <lhs> and/or modes
     ---@alias KeymapEntry
     ---| boolean                        # true to accept default, false to disable
     ---| nil                            # accept default (same as omitting the command name from table)
-    ---| lhs                            # override the default <lhs> (keeping mode(s))
+    ---| lhs                            # override the default <lhs> in default mode(s)
     ---| KeymapSingle                   # override the default <lhs> and/or modes
     ---| KeymapSingle[]                 # idem, but allows multiple, mode-specific <lhs>'s
     ---@type table<string, KeymapEntry>
     keys = {
       show_control_flow = { "n", "<leader>k"},
-      select_current_node = {
-        {"n", "<A-k>"},
-        {{ "x", "o" }, "i."}},
-      select_siblings_backward = {{ "n", "x", "o" }, "<M-[>"},
-      select_siblings_forward = {{ "n", "x", "o" }, "<M-]>"},
+      select_current_node = {{ "x", "o" }, "i."},
+      select_first_sibling = {{ "n", "x", "o" }, "<M-[>"},
+      select_last_sibling = {{ "n", "x", "o" }, "<M-]>"},
       select_top_level = {{ "n", "x", "o" }, "<M-g>"},
       select_forward = {{ "n", "x", "o" }, "<M-l>"},
       select_backward = {{ "n", "x", "o" }, "<M-h>"},
@@ -183,18 +181,22 @@ If your override has an invalid format, treeclimber will generally emit a warnin
         Selection = function(o) return { bold = true, bg = o.visual.bg.hex } end,
         SiblingStart = false,
         Sibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
+        -- Make Parent bg color noticeably lighter than Siblings.
         Parent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 80).hex } end,
         ParentStart = false,
       },
-      -- When `true`, Sibling regions inherit highlight attributes like bold and italic
-      -- from Parent regions.
+      -- `true` to cause attributes like bold and italic to "bleed through" from Parent
+      -- to Siblings.
       inherit_attrs = true,
+      -- `true` to replace default 'highlights' with user overrides, false or nil to merge
+      replace_defaults = false,
     },
   },
 }
 ```
 
 ### HSLUV Color Support
+
 As mentioned in the default option comments, an object of type `HSLUV` is made available to the `highlights` option callback functions.
 This object facilitates working with *HSL* colors in the more human-friendly *HSLUV* color space.
 Its methods and fields are shown here. For further details, look in the treeclimber source (vivid/hsl_like.lua).
