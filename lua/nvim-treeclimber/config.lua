@@ -38,7 +38,13 @@ local defaults = {
 		---@type table<string, treeclimber.KeymapEntryDefCanon>
 		keys = {
 			show_control_flow = { "n", "<leader>k"},
-			select_current_node = {{ "x", "o" }, "i."},
+			select_current_node = {
+				-- Note: In normal mode, select_current_node and select_expand are
+				-- pretty much equivalent, but the former more accurately reflects
+				-- the nature of the operation.
+				{"n", "<M-k>"},
+				{{ "x", "o" }, "i."}
+			},
 			select_first_sibling = {{ "n", "x", "o" }, "<M-[>"},
 			select_last_sibling = {{ "n", "x", "o" }, "<M-]>"},
 			select_top_level = {{ "n", "x", "o" }, "<M-g>"},
@@ -49,7 +55,7 @@ local defaults = {
 			select_grow_backward = {{ "n", "x", "o" }, "<M-H>"},
 			select_expand = {
 				{{"x", "o"}, "a."},
-				{{"n", "x", "o"}, "<M-k>"}
+				{{"x", "o"}, "<M-k>"}
 			},
 			select_shrink = {{ "n", "x", "o" }, "<M-j>"},
 		},
@@ -92,7 +98,7 @@ local defaults = {
 			---@type table<string, treeclimber.HighlightEntryDefCanon>
 			highlights = {
 				-- Note: Overriding bg color of the visual selection doesn't work very well.
-				Selection = function(o) return { bold = true, bg = o.visual.bg.hex } end,
+				Selection = function(o) return { bg = o.visual.bg.hex } end,
 				SiblingStart = false,
 				Sibling = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 50).hex } end,
 				Parent = function(o) return { bg = o.visual.bg.mix(o.normal.bg, 80).hex } end,

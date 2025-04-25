@@ -112,7 +112,10 @@ If your override has an invalid format, treeclimber will generally emit a warnin
     ---@type table<string, KeymapEntry>
     keys = {
       show_control_flow = { "n", "<leader>k"},
-      select_current_node = {{ "x", "o" }, "i."},
+      select_current_node = {
+          {"n", "<M-k>"},
+          {{ "x", "o" }, "i."}
+      },
       select_first_sibling = {{ "n", "x", "o" }, "<M-[>"},
       select_last_sibling = {{ "n", "x", "o" }, "<M-]>"},
       select_top_level = {{ "n", "x", "o" }, "<M-g>"},
@@ -123,7 +126,7 @@ If your override has an invalid format, treeclimber will generally emit a warnin
       select_grow_backward = {{ "n", "x", "o" }, "<M-H>"},
       select_expand = {
         {{"x", "o"}, "a."},
-        {{"n", "x", "o"}, "<M-k>"}
+        {{"x", "o"}, "<M-k>"}
       },
       select_shrink = {{ "n", "x", "o" }, "<M-j>"},
     },
