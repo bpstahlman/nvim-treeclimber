@@ -8,7 +8,7 @@ local Stack = require("nvim-treeclimber.stack")
 local RingBuffer = require("nvim-treeclimber.ring_buffer")
 local argcheck = require("nvim-treeclimber.typecheck").argcheck
 
--- FIXME: Remove this once an approach has been finalized.
+-- TODO: Remove this once an approach has been finalized.
 local CFG_USE_MODE_CHANGED_EVENT = true
 
 local api = {}
@@ -475,40 +475,39 @@ function api.node.largest_named_descendant_for_range(node, range)
 	return prev, innermost
 end
 
--- Get a node above this one that would grow the selection
+-- Get a node above this one that would grow the selection, returning the outermost of multiple
+-- colocated nodes.
 ---@param node TSNode
----@param range treeclimber.Range
 ---@return TSNode
-function api.get_larger_ancestor(node, range)
+function api.get_larger_ancestor(node)
+	---@type treeclimber.Range
+	local range = Range.from_node(node)
+	---@type treeclimber.Range
+	local next_range
 	---@type TSNode?
-	local acc = node
-	local prev = node
-
-	while acc and api.node.has_range(acc, range) do
-		prev = acc
-		acc = acc:parent()
-	end
-
-	return acc or prev
-end
-
--- Check if visual selection is covering the node, with the cursor at the end
---- @param node TSNode
---- @param start treeclimber.Pos
---- @param end_ treeclimber.Pos
-local function is_selected_cursor_end(node, start, end_)
-	local sr, sc, er, ec = node:range()
-
-	return er == start.row and ec == (start.col + 1) and sr == end_.row and sc == (end_.col - 1)
-end
-
----@deprecated use `is_selected_cursor_start_v2`
----@param node TSNode
----@param start treeclimber.Pos
----@param end_ treeclimber.Pos
-local function is_selected_cursor_start(node, start, end_)
-	local sr, sc, er, ec = node:range()
-	return sr == start.row and sc == start.col and er == end_.row and ec == end_.col
+	local next
+	---@type integer Number of times range has increased
+	local inc_cnt = 0
+	-- Logic: Attempt to expand twice, taking the last node accepted *before* the second
+	-- expansion.
+	repeat
+		next = node:parent()
+		if next then
+			next_range = Range.from_node(next)
+			if next_range ~= range then
+				-- Range increase has occurred!
+				inc_cnt = inc_cnt + 1
+				if inc_cnt > 1 then
+					-- On second increase, break without updating node.
+					break
+				end
+				range = next_range
+			end
+			-- Save the best candidate so far.
+			node = next
+		end
+	until not next
+	return node
 end
 
 ---@return {Selection: vim.api.keyset.keymap,
@@ -567,7 +566,7 @@ local function clear_namespace()
 end
 
 -- Apply highlights to various regions, defined relative to the selected node.
--- Important Note: Although it is possibly to set the priority of the highlights attached to
+-- Important Note: Although it is possible to set the priority of the highlights attached to
 -- extmarks explicitly using the 'priority' field of the option table passed to
 -- nvim_buf_set_extmark(), this function omits the 'priority' field and relies instead on the order
 -- in which the extmarks are created. To understand how this works, visualize a virtual, sorted
@@ -733,7 +732,6 @@ function api.select_expand()
 	if node_is_selected(node, range:to_list()) then
 		-- Expand the selection.
 		node = api.node.grow(node)
-
 		if not node then
 			return
 		end
@@ -946,20 +944,11 @@ end
 ---@param node TSNode
 ---@return TSNode?
 function api.node.grow(node)
-	local next = node
-	local range = Range.from_node(node)
-
-	if not next then
-		return
+	if not node then
+		-- Note: This is really probably an internal error; consider assert().
+		return nil
 	end
-
-	if not api.node.has_range(next, range) then
-		return next
-	end
-
-	local ancestor = api.get_larger_ancestor(next, range)
-
-	return ancestor or next
+	return api.get_larger_ancestor(node)
 end
 
 ---@param nodes TSNode[]
